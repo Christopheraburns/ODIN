@@ -7,6 +7,10 @@ import math
 from mathutils import *
 import bpy
 
+upper_bound = 2
+scale_factor = 3
+
+
 def clamp(x, minimum, maximum):
     return max(minimum, min(x, maximum))
 
@@ -35,7 +39,6 @@ def camera_view_bounds_2d(scene, cam_ob, me_ob):
     me = mesh_eval.to_mesh()
     me.transform(me_ob.matrix_world)
     me.transform(mat)
-
     camera = cam_ob.data
     frame = [-v for v in camera.view_frame(scene=scene)[:3]]
     camera_persp = camera.type != 'ORTHO'
@@ -100,47 +103,61 @@ try:
     bpy.ops.object.delete() # should delete cube
 
     #add object
-    file_loc = "/home/chris/Downloads/cams650.obj"
+    file_loc = "/home/chris/Downloads/skidsteer.obj"
     bpy.ops.import_scene.obj(filepath = file_loc)
 
     #We don't need to join objects in Blender 2.8x
     #TODO - Determine which type of models need to be joined and which do not so we don't break this
-    for ob in bpy.context.scene.objects:
-        if ob.type=="MESH":
-            ob.select_set(True)
-            # TODO - this makes the assumption there is only one mesh  - could end badly
-            bpy.context.view_layer.objects.active = ob
-        else:
-            ob.select_set(False)
-    bpy.ops.object.join()
 
-    # transparent sky
+    if len(C.scene.objects) > 3:
+        # Join the objects together and set the master object to be the active object
+        for ob in C.scene.objects:
+            if ob.type=="MESH":
+                ob.select_set(True)
+                # TODO - this makes the assumption there is only one mesh  - could end badly
+                bpy.context.view_layer.objects.active = ob
+            else:
+                ob.select_set(False)
+        bpy.ops.object.join()
+    else:
+        # Set the object to be the active object
+        for ob in C.scene.objects:
+            if ob.type=="MESH":
+                ob.select_set(True)
+                C.view_layer.objects.active = ob
+
+    #  Set the image background to be transparent
     C.scene.render.film_transparent = True
 
-    #scale object
-    k=2/max(C.active_object.dimensions)
+    #  scale object
+    s = 2/max(C.active_object.dimensions)
 
-    C.active_object.scale=(k,k,k)
+    C.active_object.scale = (s, s, s)
 
-    upper = 10
-    #rotate and render
-
+    #  rotate and render
     obj = C.active_object
-    obj.rotation_mode='XYZ'
+    obj.rotation_mode = 'XYZ'
     cam = bpy.data.objects['Camera']
-    theta=1 #degrees to turn per rotation
-    start_angle=0
+    theta = 1  # degrees to turn per rotation
+    start_angle = 0
 
     # Rotate on the Z axis
-    for z in range(1,upper):
-        angle = (start_angle * (math.pi /180)) + (z*-1) * (theta * (math.pi/180))
-        obj.rotation_euler  = (0,0,angle)
-        filename = output_folder + "/" + output_filename + "_z_{}.png".format(z)
-        bpy.context.scene.render.filepath = filename
-        bpy.ops.render.render(write_still=True,use_viewport=True)
+    for z in range(1, upper_bound):
+        angle = (start_angle * (math.pi/180)) + (z*-1) * (theta * (math.pi/180))
+        obj.rotation_euler = (0, 0, angle)
 
-        with open(output_folder + "/z_bounds_" + str(z) + ".txt", "w") as f:
-            f.write(camera_view_bounds_2d(C.scene, cam, obj) + "\n")
+        bpy.context.scene.render.filepath = output_folder + "/" + output_filename + "_z_{}.png".format(z)
+        bpy.ops.render.render(write_still=True, use_viewport=True)
+
+        #with open(output_folder + "/z_bounds_" + str(z) + ".txt", "w") as f:
+            #f.write(camera_view_bounds_2d(C.scene, cam, obj) + "\n")
+        bounding_box = camera_view_bounds_2d(C.scene, cam, obj)
+        x_min = bounding_box[0]
+        y_min = bounding_box[1]
+        width = bounding_box[2]
+        height = bounding_box[3]
+
+        print("x_min: {} y_min: {} width: {} height: {}".format(x_min, y_min, width, height))
 
         '''
         z_vertices=[] 
@@ -153,14 +170,23 @@ try:
                 f.write(str(zv[0]) + "," + str(zv[1]) + "," + str(zv[2]) + "\n")
         '''
 
-    for x in range(1,upper):
-        angle = (start_angle * (math.pi /180)) + (x*-1) * (theta * (math.pi/180))
-        obj.rotation_euler  = (angle,0,0)
-        bpy.context.scene.render.filepath  =output_folder + "/" + output_filename + "_x_%d.png" % (x)
-        bpy.ops.render.render(write_still=True,use_viewport=True)
+    for x in range(1, upper_bound):
+        angle = (start_angle * (math.pi/180)) + (x*-1) * (theta * (math.pi/180))
+        obj.rotation_euler  = (angle, 0, 0)
+        bpy.context.scene.render.filepath = output_folder + "/" + output_filename + "_x_{}.png".format(x)
+        bpy.ops.render.render(write_still=True, use_viewport=True)
 
-        with open(output_folder + "/x_bounds_" + str(x) + ".txt", "w") as f:
-            f.write(camera_view_bounds_2d(C.scene, cam, obj) + "\n")
+        bounding_box = camera_view_bounds_2d(C.scene, cam, obj)
+
+        x_min = bounding_box[0]
+        y_min = bounding_box[1]
+        width = bounding_box[2]
+        height = bounding_box[3]
+
+        print("x_min: {} y_min: {} width: {} height: {}".format(x_min, y_min, width, height))
+
+        #with open(output_folder + "/x_bounds_" + str(x) + ".txt", "w") as f:
+        #    f.write(camera_view_bounds_2d(C.scene, cam, obj) + "\n")
 
         '''
         x_vertices=[]
@@ -173,14 +199,23 @@ try:
                 f.write(str(zv[0]) + "," + str(zv[1]) + "," + str(zv[2]) + "\n")
         '''
 
-    for y in range(1,upper):
+    for y in range(1, upper_bound):
         angle = (start_angle * (math.pi /180)) + (y*-1) * (theta * (math.pi/180))
-        obj.rotation_euler  = (0,angle,0)
-        bpy.context.scene.render.filepath  =output_folder + "/" + output_filename + "_y_%d.png" % (y)
-        bpy.ops.render.render(write_still=True,use_viewport=True)
+        obj.rotation_euler = (0, angle, 0)
+        bpy.context.scene.render.filepath = output_folder + "/" + output_filename + "_y_{}.png".format(y)
+        bpy.ops.render.render(write_still=True, use_viewport=True)
 
-        with open(output_folder + "/y_bounds_" + str(y) + ".txt", "w") as f:
-            f.write(camera_view_bounds_2d(C.scene, cam, obj) + "\n")
+        bounding_box = camera_view_bounds_2d(C.scene, cam, obj)
+
+        x_min = bounding_box[0]
+        y_min = bounding_box[1]
+        width = bounding_box[2]
+        height = bounding_box[3]
+
+        print("x_min: {} y_min: {} width: {} height: {}".format(x_min, y_min, width, height))
+
+        #with open(output_folder + "/y_bounds_" + str(y) + ".txt", "w") as f:
+        #    f.write(camera_view_bounds_2d(C.scene, cam, obj) + "\n")
 
         '''
         y_vertices=[]

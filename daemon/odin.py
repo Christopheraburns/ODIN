@@ -4,12 +4,15 @@ import boto3
 import redis
 import bpy
 import mathutils
+import math
 
 # Set up redis cache
 #TODO - should change from redis to Dynamo to persist unprocessed images in the event the Blender AMI exits
 redis_host = "localhost"
 redis_port = 6379
 redis_password = ""
+
+C = bpy.context
 
 def get_scalefactor(x,y,z):
     # The largest dimension should be no larger than 17
@@ -39,31 +42,37 @@ def clear_scene():
        bpy.data.meshes.remove(mesh)
 
    # remove the default Lamp
-   bpy.data.objects['Lamp'].select = True
-   print("Deleting default light")
-   bpy.ops.object.delete()
+   #bpy.data.objects['Lamp'].select = True
+   #print("Deleting default light")
+   #bpy.ops.object.delete()
 
    # remove the default camera
-   bpy.data.objects['Camera'].select = True
-   print("Deleting default camera")
-   bpy.ops.object.delete()
+   #bpy.data.objects['Camera'].select = True
+   #print("Deleting default camera")
+   #bpy.ops.object.delete()
 
    return True
 
 
 def join_meshes(scene):
-   if len(bpy.data.objects) > 1:
-      obs = []
-      for ob in scene.objects:
-         if ob.type == 'MESH':
-            obs.append(ob)
 
-      ctx = bpy.context.copy()
-      # make one object "active"
-      ctx['active_object'] = obs[0]
-      ctx['selected_objects'] = obs
+    try:
+        if len(bpy.data.objects) > 1:
+            obs = []
+            for ob in scene.objects:
+                if ob.type == 'MESH':
+                    obs.append(ob)
 
-      bpy.ops.object.join(ctx)
+            ctx = bpy.context.copy()
+            # make one object "active"
+            ctx['active_object'] = obs[0]
+            ctx['selected_objects'] = obs
+
+            bpy.ops.object.join(ctx)
+
+        return True
+    except Exception as err:
+        return False
 
 
 def scale_model(x, y, z, scene):
@@ -122,7 +131,8 @@ def preprocess_model(file):
     #TODO - verify that the import was successful
 
     # If the imported model has more than one mesh - join the meshes
-    join_meshes(scene)
+    if not join_meshes(scene):
+        success = False
 
     # Get reference to the singular mesh
     model = bpy.data.objects[0]
@@ -134,9 +144,20 @@ def preprocess_model(file):
     scale_model(x, y, z, scene)
 
     # Add a tracking camera to render images
-    add_tracking_camera()
+   # add_tracking_camera()
 
+    scene.render.alpha_mode="TRANSPARENT"
 
+    #obj = C.active_object
+    model.rotation_mode = 'XYZ'
+
+    start_angle = 0
+
+    angle = (start_angle * (math.pi/180)) + (1*-1) *(1 * (math.pi/180))
+    model.rotation_euler = (0, 0, angle)
+
+    bpy.context.scene.render.filepath = "test.png"
+    bpy.ops.render.render(write_still=True, use_viewport=True)
     '''
     bpy.ops.render.opengl(animation=False, sequencer=False,write_still=True, view_context=True)
 
@@ -149,10 +170,11 @@ def preprocess_model(file):
     #TODO - Once the render is complete and verified - delete the entry from the Redis Cache
 
 
-def main():
+def prod_main():
     print("loading blender")
     obj_list = []
     s3 = boto3.resource('s3')
+
 
     print("Querying redis cache for unprocessed images...")
     # Get all the objects to process from the redis cache
@@ -177,6 +199,9 @@ def main():
         print("ODIN downloaded file: {}".format(fname))
         preprocess_model(fname)
 
+
+def main():
+    preprocess_model("/home/chris/Downloads/Cams650.obj")
 
 if __name__ == '__main__':
     main()
