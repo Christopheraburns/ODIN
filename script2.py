@@ -13,13 +13,16 @@ import time
 import os
 import xml.etree.ElementTree as ET
 
+class_name = ""
 output_folder = "/home/chris/Desktop/blender/VOC"
 logfile = "/home/chris/Desktop/logfile.txt"
-upper_bound = 2
+upper_bound = 360
 scale_factor = 3
 image_directory = ""
 annot_directory = ""
-
+target_h = 700
+target_w = 700
+C = bpy.context
 
 class Backgrounds():
     def __init__(self, bckgrnd="/data/backgrounds.pck"):
@@ -31,8 +34,10 @@ class Backgrounds():
         return bg
 
 
-def write_voc(annot_filename, height, width, depth, class_name, bbox):
+def write_voc(annot_filename, height, width, depth, bbox):
     global annot_directory
+    global class_name
+
     try:
         # Build the Structure of the VOC File
         annot = ET.Element('annotation')
@@ -60,8 +65,8 @@ def write_voc(annot_filename, height, width, depth, class_name, bbox):
         diff.text = "0"  # TODO - what does this even mean?
         xmin_node.text = str(bbox[0])
         ymin_node.text = str(bbox[1])
-        xmax_node.text = str(bbox[0] + bbox[2])
-        ymax_node.text = str(bbox[1] + bbox[3])
+        xmax_node.text = str(bbox[2])
+        ymax_node.text = str(bbox[3])
 
         xml_str = ET.tostring(annot).decode()
 
@@ -210,14 +215,59 @@ def camera_view_bounds_2d(scene, cam_ob, me_ob):
             f.write("def camera_view_bounds_2d::" + str(msg))
 
 
-def render(axis, index):
+def render(obj, angle, axis, index, axis_index):
+    cam = bpy.data.objects['Camera']
 
-def orchestrate(class_name, three_d_obj):
+    if axis == "z":
+        obj.rotation_euler = (0, 0, angle)
+    elif axis == "y":
+        obj.rotation_euler = (0, angle, 0)
+    else:
+        obj.rotation_euler = (angle, 0, 0)
+
+    render_name = output_folder + "/" + str(index) + "_render_" + axis + "_{}.png".format(axis_index)
+
+    # Render the 3D object as an image
+    bpy.context.scene.render.filepath = render_name
+
+    print("rendering pose # {} on {} axis".format(index, axis))
+    # TODO EXPLORE WRITING TO A NUMPY ARRAY RATHER THAN DISK
+    bpy.ops.render.render(write_still=True, use_viewport=True)
+
+    # Get the 2D bounding box for the image
+    bounding_box = camera_view_bounds_2d(C.scene, cam, obj)
+
+    print("generating random background")
+    # get a random background image
+    bckgrnd = backgrounds.get_random()
+    bckgrnd = cv2.resize(bckgrnd, (target_h, target_w))
+
+    if os.path.exists(render_name):
+        # Crop the image, layer image on the random background and get updated bounding box
+        new_img, new_box = crop_image(render_name, target_h, target_w, bounding_box[0], bounding_box[1],
+                                      bounding_box[3], bounding_box[2])
+
+        # Merge the cropped image with a random background
+        final_img = overlay_transparent(bckgrnd, new_img, 0, 0)
+
+        # write the final JPG
+        cv2.imwrite(image_directory + "/" + str(index) + "_" + axis + "_{}.jpg".format(axis_index),final_img)
+
+        # delete the partially rendered image
+        os.remove(render_name)
+
+        # write the VOC File
+        voc_file = str(index) + "_" + axis + "_" + str(axis_index) + ".xml"
+        write_voc(voc_file, target_h, target_w, 3, new_box)
+    else:
+        print("rendered image is unavailable for merging...")
+
+
+def orchestrate(three_d_obj):
     global image_directory
     global annot_directory
     try:
         image_index = 0
-        C = bpy.context
 
         # clear default scene
         bpy.ops.object.delete() # should delete cube
@@ -256,102 +306,32 @@ def orchestrate(class_name, three_d_obj):
         #  rotate and render
         obj = C.active_object
         obj.rotation_mode = 'XYZ'
-        cam = bpy.data.objects['Camera']
         theta = 1  # degrees to turn per rotation
         start_angle = 0
-        target_h = 700
-        target_w = 700
 
         # Rotate on the Z axis
         for z in range(1, upper_bound):
             angle = (start_angle * (math.pi/180)) + (z*-1) * (theta * (math.pi/180))
-            obj.rotation_euler = (0, 0, angle)
-            render_name = output_folder + "/" + str(image_index) + "_render_z_{}.png".format(z)
+            render(obj, angle, "z", image_index, z)
+            image_index += 1
 
-            # Render the 3D object as an image
-            bpy.context.scene.render.filepath = render_name
-
-            print("rendering pose # {} on Z axis".format(z))
-            # TODO EXPLORE WRITING TO A NUMPY ARRAY RATHER THAN DISK
-            bpy.ops.render.render(write_still=True, use_viewport=True)
-
-            # Get the 2D bounding box for the image
-            bounding_box = camera_view_bounds_2d(C.scene, cam, obj)
-
-            print("generating random background")
-            # get a random background image
-            bckgrnd = backgrounds.get_random()
-            bckgrnd = cv2.resize(bckgrnd, (target_h, target_w))
-
-            if os.path.exists(render_name):
-                # Crop the image, layer image on the random background and get updated bounding box
-                new_img, new_box = crop_image(render_name, target_h, target_w, bounding_box[0], bounding_box[1],
-                                              bounding_box[3], bounding_box[2])
-
-                # Merge the cropped image with a random background
-                final_img = overlay_transparent(bckgrnd, new_img, 0, 0)
-
-                # write the final JPG
-                cv2.imwrite(image_directory + "/" + str(image_index) + "_z_{}.jpg".format(z),
-                            final_img)
-
-                # delete the partially rendered image
-                os.remove(render_name)
-
-                # write the VOC File
-                voc_file = str(image_index) + "_z_" + str(z) + ".xml"
-                write_voc(voc_file, target_h, target_w, 3, class_name, new_box)
-                image_index += 1
-
-            else:
-                print("rendered image is unavailable for merging...")
-
-
-        '''
         for x in range(1, upper_bound):
             angle = (start_angle * (math.pi/180)) + (x*-1) * (theta * (math.pi/180))
-            obj.rotation_euler  = (angle, 0, 0)
-            bpy.context.scene.render.filepath = output_folder + "/" + output_filename + "_x_{}.png".format(x)
-            bpy.ops.render.render(write_still=True, use_viewport=True)
-
-            bounding_box = camera_view_bounds_2d(C.scene, cam, obj)
-
-            x_min = bounding_box[0]
-            y_min = bounding_box[1]
-            width = bounding_box[2]
-            height = bounding_box[3]
-
-            print("x_min: {} y_min: {} width: {} height: {}".format(x_min, y_min, width, height))
-
-            #with open(output_folder + "/x_bounds_" + str(x) + ".txt", "w") as f:
-            #    f.write(camera_view_bounds_2d(C.scene, cam, obj) + "\n")
-
+            render(obj, angle, "x", image_index, x)
+            image_index += 1
 
         for y in range(1, upper_bound):
             angle = (start_angle * (math.pi /180)) + (y*-1) * (theta * (math.pi/180))
-            obj.rotation_euler = (0, angle, 0)
-            bpy.context.scene.render.filepath = output_folder + "/" + output_filename + "_y_{}.png".format(y)
-            bpy.ops.render.render(write_still=True, use_viewport=True)
-
-            bounding_box = camera_view_bounds_2d(C.scene, cam, obj)
-
-            x_min = bounding_box[0]
-            y_min = bounding_box[1]
-            width = bounding_box[2]
-            height = bounding_box[3]
-
-            print("x_min: {} y_min: {} width: {} height: {}".format(x_min, y_min, width, height))
-
-            #with open(output_folder + "/y_bounds_" + str(y) + ".txt", "w") as f:
-            #    f.write(camera_view_bounds_2d(C.scene, cam, obj) + "\n")
-        '''
+            render(obj, angle, "y", image_index, y)
+            image_index += 1
 
     except Exception as msg:
-        with open(logfile,"w") as f:
+        with open(logfile, "w") as f:
             f.write(str(msg))
 
 
 def main():
+    global class_name
     global image_directory
     global annot_directory
 
@@ -372,7 +352,8 @@ def main():
 
     # TODO - Convert this to a DynamoDB table query to get S3 URL of Objects
     three_d_obj = "/home/chris/Downloads/skidsteer.obj"
-    orchestrate("skidsteer", three_d_obj)
+    class_name = "skidsteer"
+    orchestrate(three_d_obj)
 
 
 if __name__ == '__main__':
