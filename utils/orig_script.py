@@ -12,9 +12,10 @@ import numpy as np
 import time
 import os
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 class_name = ""
-output_folder = "/home/chris/Desktop/blender/VOC"
+output_folder = "data/intermediate/"
 logfile = "/home/chris/Desktop/logfile.txt"
 upper_bound = 360
 scale_factor = 3
@@ -216,6 +217,14 @@ def camera_view_bounds_2d(scene, cam_ob, me_ob):
 
 
 def render(obj, angle, axis, index, axis_index):
+    '''
+    obj: the 3D object to be rendered
+    angle: angle to position object
+    axis: which axis to apply the angle
+    index: index for unique filename
+    axis_index: index for axis
+    Render the image to .png and write to persistance store
+    '''
     cam = bpy.data.objects['Camera']
 
     if axis == "z":
@@ -247,18 +256,14 @@ def render(obj, angle, axis, index, axis_index):
         new_img, new_box = crop_image(render_name, target_h, target_w, bounding_box[0], bounding_box[1],
                                       bounding_box[3], bounding_box[2])
 
-        # Merge the cropped image with a random background
-        final_img = overlay_transparent(bckgrnd, new_img, 0, 0)
+        # write the base image to disk
+        cv2.imwrite(image_directory + "/" + str(index) + "_" + axis + "_{}.png".format(axis_index),new_img)
 
-        # write the final JPG
-        cv2.imwrite(image_directory + "/" + str(index) + "_" + axis + "_{}.jpg".format(axis_index),final_img)
+        # write the bounding box info to disk with the same filename as the base image
+        with open(image_directory + "/" + str(index) + "_" + axis + "_{}.txt".format(axis_index), "w") as f:
+            f.write(str(new_box))
 
-        # delete the partially rendered image
-        os.remove(render_name)
 
-        # write the VOC File
-        voc_file = str(index) + "_" + axis + "_" + str(axis_index) + ".xml"
-        write_voc(voc_file, target_h, target_w, 3, new_box)
     else:
         print("rendered image is unavailable for merging...")
 
@@ -315,11 +320,13 @@ def orchestrate(three_d_obj):
             render(obj, angle, "z", image_index, z)
             image_index += 1
 
+        # Rotate on the X axis
         for x in range(1, upper_bound):
             angle = (start_angle * (math.pi/180)) + (x*-1) * (theta * (math.pi/180))
             render(obj, angle, "x", image_index, x)
             image_index += 1
 
+        # Rotate on the Y axis
         for y in range(1, upper_bound):
             angle = (start_angle * (math.pi /180)) + (y*-1) * (theta * (math.pi/180))
             render(obj, angle, "y", image_index, y)
@@ -357,6 +364,23 @@ def main():
 
 
 if __name__ == '__main__':
+    #if not os.path.exists(output_folder):
+    #    os.mkdir(output_folder)
+
     backgrounds = Backgrounds()
     time.sleep(3)
     main()
+
+
+# Merge the cropped image with a random background
+# final_img = overlay_transparent(bckgrnd, new_img, 0, 0)
+
+# write the final JPG
+# cv2.imwrite(image_directory + "/" + str(index) + "_" + axis + "_{}.jpg".format(axis_index),final_img)
+
+# delete the partially rendered image
+# os.remove(render_name)
+
+# write the VOC File
+# voc_file = str(index) + "_" + axis + "_" + str(axis_index) + ".xml"
+# write_voc(voc_file, target_h, target_w, 3, new_box)

@@ -10,9 +10,6 @@ from glob import glob
 from PIL import Image
 
 
-
-
-
 class Backgrounds():
     def __init__(self, bckgrnd="/data/backgrounds.pck"):
         self._images = pickle.load(open(bckgrnd, 'rb'))
