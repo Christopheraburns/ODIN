@@ -37,4 +37,9 @@ Augmentation Engine
     • Matte the object on random background
 
 
-
+Background Image Server
+    Create an appropriately named S3 bucket to store background images
+    Move the contents of this file: https://odin-v1.s3.amazonaws.com/backgrounds.zip into the S3 bucket - not the zip file itself, the CONTENTS of the zip file
+    Grab this manifest file here: https://odin-v1.s3.amazonaws.com/manifest.txt It is a list of all the files you moved into an s3 bucket in the previous step
+    Create a lambda function based on *this* code
+    The Lambda function, when called will go grab a random image from the background image bucket and return that image to the caller

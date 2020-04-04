@@ -23,4 +23,4 @@ COPY script3.py /script3.py
 
 COPY src/serve /opt/program/serve
 RUN chmod 755 /opt/program/serve
-ENV PATH=/opt/program:${PATH}
+ENV PATH=/opt/program:${PATH}echo

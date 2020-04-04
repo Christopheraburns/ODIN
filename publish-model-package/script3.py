@@ -35,11 +35,13 @@ class Backgrounds():
         bg=self._images[random.randint(0, self._nb_images - 1)]
         return bg
 
+
 def write_file(file_path,prefix,content):
     with open(file_path, "w") as f:
         f.write(prefix + str(content))
     upload_file(file_path, bucket, object_name=None)
-        
+
+
 def upload_file(file_name, bucket, object_name=None):
 
     # If S3 object_name was not specified, use file_name
@@ -53,6 +55,7 @@ def upload_file(file_name, bucket, object_name=None):
         logging.error(e)
         return False
     return True
+
 
 def write_voc(annot_filename, height, width, depth, bbox):
     global annot_directory
@@ -97,7 +100,6 @@ def write_voc(annot_filename, height, width, depth, bbox):
         write_file(output_folder+'/'+logfile,"def write_voc::",msg)
 
 
-
 def overlay_transparent(background, overlay, x, y):
 
     try:
@@ -136,7 +138,6 @@ def overlay_transparent(background, overlay, x, y):
         write_file(output_folder+'/'+logfile,"def overlay_transparent::",msg)
 
 
-
 def crop_image(img, target_h, target_w, bbox_x_min, bbox_y_min, obj_height, obj_width):
 
     try:
@@ -162,7 +163,6 @@ def crop_image(img, target_h, target_w, bbox_x_min, bbox_y_min, obj_height, obj_
         return cropped, new_bbox
     except Exception as msg:
         write_file(output_folder+'/'+logfile,"def crop_image::",msg)
-
 
 
 def clamp(x, minimum, maximum):
@@ -385,20 +385,20 @@ if __name__ == '__main__':
     global three_d_object 
     global output_folder
     global bucket 
-    output_folder=sys.argv[-1]
-    print('output:',output_folder)
-    theta= int(sys.argv[-2])
-    print('theta:',theta)
-    bucket=sys.argv[-5]
-    print('bucket:',bucket)
-    background_file='background.pck'
+    output_folder = sys.argv[-1] # Subfolder to create in the S3 directory
+    print('output:', output_folder)
+    theta = int(sys.argv[-2]) # 180?
+    print('theta:', theta)
+    bucket = sys.argv[-5]  # Bucket to find the 3D object file
+    print('bucket:', bucket)
+    background_file = 'background.pck'
     
-    print('background:',sys.argv[-3])
+    print('background:', sys.argv[-3]) # Background pickle file
     with open(background_file, 'wb') as background_file_path:
         s3.download_fileobj(bucket, sys.argv[-3], background_file_path)
 
-    print('three_d_object:',sys.argv[-4])
-    three_d_object='three_d_object.obj'
+    print('three_d_object:', sys.argv[-4]) # name of 3D object to render
+    three_d_object = 'three_d_object.obj'
     with open(three_d_object, 'wb') as three_d_object_file_path:
         s3.download_fileobj(bucket, sys.argv[-4], three_d_object_file_path)
  

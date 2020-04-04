@@ -5,34 +5,93 @@
 import math
 from mathutils import *
 import bpy
-import pickle
 import random
 import cv2
 import numpy as np
-import time
+import sys
 import os
 import xml.etree.ElementTree as ET
+import boto3
+import shutil
+import logging
+import datetime
+logging.basicConfig(filename='runtime.log', level=logging.INFO)
+C = bpy.context
+job_id = str(datetime.datetime.now())
+job_id = job_id.replace(":", "-")
+job_id = job_id.replace(".", "-")
+job_id = job_id.replace(" ", "")
 
+s3_bucket = '' # Bucket where .obj files can be found for processing
+s3_background_bucket = 'odin-bck'
+s3_output = s3_bucket + '/output/' + job_id + '/VOC'
+s3_train_image_output = s3_output + "/VOCTrain/JPEGImages/"
+s3_validate_image_output = s3_output + "/VOCValid/JPEGImages/"
+s3_train_annot_output = s3_output + "/VOCTrain/Annotations/"
+s3_validate_annot_output = s3_output + "/VOCValid/Annotations/"
+
+
+theta = 1    # amount (in degrees) to rotate the object - on each axis - for each render
+
+# These variables are subject to change as ODIN evolves and becomes cloud native
 output_folder = "/home/chris/Desktop/blender/VOC"
-logfile = "/home/chris/Desktop/logfile.txt"
-upper_bound = 2
-scale_factor = 3
 image_directory = ""
 annot_directory = ""
+# TODO - add the below variables to argparse
+upper_bound = 360
+scale_factor = 3
+target_h = 700
+target_w = 700
 
 
-class Backgrounds():
-    def __init__(self, bckgrnd="/data/backgrounds.pck"):
-        self._images = pickle.load(open(bckgrnd, 'rb'))
-        self._nb_images = len(self._images)
+# Get the .obj files from a specified s3 bucket
+def get_s3_contents():
+    global s3_bucket
+    s3 = boto3.resource("s3")
+    try:
+        target_bucket = s3.Bucket(s3_bucket)
+        logging.info("Checking for objects in: {}".format(target_bucket))
 
-    def get_random(self, display=False):
-        bg=self._images[random.randint(0, self._nb_images - 1)]
-        return bg
+        for s3_obj in target_bucket.objects.all():
+            path, filename = os.path.split(s3_obj.key)
+            if not "/" in s3_obj.key:  # Don't download subfolder contents
+                logging.info("Downloading: {}".format(s3_obj.key))
+                target_bucket.download_file(s3_obj.key, './tmp/' + filename)
+    except Exception as err:
+        logging.error("def get_s3_contents:: {}".format(str(err)))
 
 
-def write_voc(annot_filename, height, width, depth, class_name, bbox):
+# Get a random background from a Lambda function
+def get_background():
+    logging.info("Obtaining random background image from S3")
+    m_file = 'manifest.txt'
+    m_length = 5640  # Num of entries in Manifest file - update this if file is altered
+    m_index = {}
+    s3 = boto3.client("s3")
+    try:
+        # Gen random number
+        key = random.randrange(0, m_length+1)
+
+        # Load manifest file
+        with open(m_file) as f:
+            for i, l in enumerate(f):
+                m_index[i] = l.strip()
+
+        # Download corresponding object from S3
+        with open("./tmp/backgrounds/" + m_index[key], 'wb') as f:
+            s3.download_fileobj(s3_background_bucket, m_index[key], f)
+
+        img = cv2.imread("./tmp/backgrounds/" + m_index[key])
+        return img
+
+    except Exception as err:
+        logging.error("def get_background::" + str(err))
+
+
+# Create the VOC annotation file for a specific image
+def write_voc(annot_filename, height, width, depth, bbox, c_name):
     global annot_directory
+
     try:
         # Build the Structure of the VOC File
         annot = ET.Element('annotation')
@@ -56,12 +115,12 @@ def write_voc(annot_filename, height, width, depth, class_name, bbox):
         img_height.text = str(width)
         img_depth.text = str(depth)
 
-        class_name_node.text = class_name
-        diff.text = "0"  # TODO - what does this even mean?
+        class_name_node.text = c_name
+        diff.text = "0"  # TODO - find out what this even means?
         xmin_node.text = str(bbox[0])
         ymin_node.text = str(bbox[1])
-        xmax_node.text = str(bbox[0] + bbox[2])
-        ymax_node.text = str(bbox[1] + bbox[3])
+        xmax_node.text = str(bbox[2])
+        ymax_node.text = str(bbox[3])
 
         xml_str = ET.tostring(annot).decode()
 
@@ -69,8 +128,7 @@ def write_voc(annot_filename, height, width, depth, class_name, bbox):
         annot_file.write(xml_str)
 
     except Exception as msg:
-        with open(logfile, "w") as f:
-            f.write("def write_voc::" + str(msg))
+        logging.error("def write_voc::" + str(msg))
 
 
 def overlay_transparent(background, overlay, x, y):
@@ -108,8 +166,7 @@ def overlay_transparent(background, overlay, x, y):
 
         return background
     except Exception as msg:
-        with open(logfile, "w") as f:
-            f.write("def overlay_transparent::" + str(msg))
+        logging.error("def overlay_transparent::" + str(msg))
 
 
 def crop_image(img, target_h, target_w, bbox_x_min, bbox_y_min, obj_height, obj_width):
@@ -136,16 +193,15 @@ def crop_image(img, target_h, target_w, bbox_x_min, bbox_y_min, obj_height, obj_
 
         return cropped, new_bbox
     except Exception as msg:
-        with open(logfile, "w") as f:
-            f.write("def crop_image::" + str(msg))
+        logging.error("def crop_image::" + str(msg))
 
 
 def clamp(x, minimum, maximum):
     return max(minimum, min(x, maximum))
 
 
+# Function to calculate the 2D bounding box of the object that was just rendered
 def camera_view_bounds_2d(scene, cam_ob, me_ob):
-
     try:
         mat = cam_ob.matrix_world.normalized().inverted()
         depsgraph = bpy.context.evaluated_depsgraph_get()
@@ -206,24 +262,81 @@ def camera_view_bounds_2d(scene, cam_ob, me_ob):
             round((max_y - min_y) * dim_y)   # Height
         )
     except Exception as msg:
-        with open(logfile, "w") as f:
-            f.write("def camera_view_bounds_2d::" + str(msg))
+        logging.error("def camera_view_bounds_2d::" + str(msg))
 
 
-def render(axis, index):
+# Render function will download a random background from S3
+# merge the newly rendered image with the random background and write to disk
+# create and write an accompanying VOC file for the newly rendered image
+def render(obj, angle, axis, index, axis_index, c_name):
+    try:
+        cam = bpy.data.objects['Camera']
 
-def orchestrate(class_name, three_d_obj):
+        if axis == "z":
+            obj.rotation_euler = (0, 0, angle)
+        elif axis == "y":
+            obj.rotation_euler = (0, angle, 0)
+        else:
+            obj.rotation_euler = (angle, 0, 0)
+
+        render_name = "./tmp/renders/" + c_name + "_" + str(index) + "_render_" + axis + "_{}.png".format(axis_index)
+
+        # Render the 3D object as an image
+        bpy.context.scene.render.filepath = render_name
+
+        logging.debug("rendering pose # {} on {} axis".format(index, axis))
+        # TODO EXPLORE WRITING TO A NUMPY ARRAY RATHER THAN DISK FOR BETTER PERFORMANCE
+        bpy.ops.render.render(write_still=True, use_viewport=True)
+
+        # Get the 2D bounding box for the image
+        logging.debug("Generating 2D bounding box for VOC dataset")
+        bounding_box = camera_view_bounds_2d(C.scene, cam, obj)
+
+        # get a random background image from Lambda function
+        bckgrnd = get_background()
+        bckgrnd = cv2.resize(bckgrnd, (target_h, target_w))
+
+        if os.path.exists(render_name):
+            logging.debug("Cropping image before merge")
+            # Crop the image, layer image on the random background and get updated bounding box
+            new_img, new_box = crop_image(render_name, target_h, target_w, bounding_box[0], bounding_box[1],
+                                          bounding_box[3], bounding_box[2])
+
+            # Merge the cropped image with a random background
+            logging.debug("Merging rendered image with background")
+            final_img = overlay_transparent(bckgrnd, new_img, 0, 0)
+
+            # write the final JPG
+            cv2.imwrite("./tmp/final/" + c_name + "_" + str(index) + "_" + axis + "_{}.jpg".format(axis_index), final_img)
+
+            # delete the partially rendered image
+            os.remove(render_name)
+
+            # write the VOC File
+            voc_file = c_name +  "_" + str(index) + "_" + axis + "_" + str(axis_index) + ".xml"
+            #write_voc(voc_file, target_h, target_w, 3, new_box, c_name)
+        else:
+            logging.error("Rendered image is unavailable for merging!")
+    except Exception as err:
+        logging.error("def render:: {}".format(err))
+
+
+# Orchestrator loads the .obj file into blender workspace
+# If the object is independent meshes, it merges the meshes into a single mesh
+# The single mesh is than scaled appropriately
+# Finally the mesh is rotated by theta on each axis and an image is rendered to disk
+def orchestrate(three_d_obj, c_name):
     global image_directory
     global annot_directory
+    global theta
     try:
         image_index = 0
-        C = bpy.context
 
         # clear default scene
         bpy.ops.object.delete() # should delete cube
 
         # add object
-        bpy.ops.import_scene.obj(filepath=three_d_obj)
+        bpy.ops.import_scene.obj(filepath='./tmp/' + three_d_obj)
 
         # We don't need to join objects in Blender 2.8x
         # TODO - Determine which type of models need to be joined and which do not so we don't break this
@@ -256,126 +369,70 @@ def orchestrate(class_name, three_d_obj):
         #  rotate and render
         obj = C.active_object
         obj.rotation_mode = 'XYZ'
-        cam = bpy.data.objects['Camera']
-        theta = 1  # degrees to turn per rotation
         start_angle = 0
-        target_h = 700
-        target_w = 700
 
         # Rotate on the Z axis
         for z in range(1, upper_bound):
             angle = (start_angle * (math.pi/180)) + (z*-1) * (theta * (math.pi/180))
-            obj.rotation_euler = (0, 0, angle)
-            render_name = output_folder + "/" + str(image_index) + "_render_z_{}.png".format(z)
+            render(obj, angle, "z", image_index, z, c_name)
+            image_index += 1
 
-            # Render the 3D object as an image
-            bpy.context.scene.render.filepath = render_name
-
-            print("rendering pose # {} on Z axis".format(z))
-            # TODO EXPLORE WRITING TO A NUMPY ARRAY RATHER THAN DISK
-            bpy.ops.render.render(write_still=True, use_viewport=True)
-
-            # Get the 2D bounding box for the image
-            bounding_box = camera_view_bounds_2d(C.scene, cam, obj)
-
-            print("generating random background")
-            # get a random background image
-            bckgrnd = backgrounds.get_random()
-            bckgrnd = cv2.resize(bckgrnd, (target_h, target_w))
-
-            if os.path.exists(render_name):
-                # Crop the image, layer image on the random background and get updated bounding box
-                new_img, new_box = crop_image(render_name, target_h, target_w, bounding_box[0], bounding_box[1],
-                                              bounding_box[3], bounding_box[2])
-
-                # Merge the cropped image with a random background
-                final_img = overlay_transparent(bckgrnd, new_img, 0, 0)
-
-                # write the final JPG
-                cv2.imwrite(image_directory + "/" + str(image_index) + "_z_{}.jpg".format(z),
-                            final_img)
-
-                # delete the partially rendered image
-                os.remove(render_name)
-
-                # write the VOC File
-                voc_file = str(image_index) + "_z_" + str(z) + ".xml"
-                write_voc(voc_file, target_h, target_w, 3, class_name, new_box)
-                image_index += 1
-
-            else:
-                print("rendered image is unavailable for merging...")
-
-
-        '''
         for x in range(1, upper_bound):
             angle = (start_angle * (math.pi/180)) + (x*-1) * (theta * (math.pi/180))
-            obj.rotation_euler  = (angle, 0, 0)
-            bpy.context.scene.render.filepath = output_folder + "/" + output_filename + "_x_{}.png".format(x)
-            bpy.ops.render.render(write_still=True, use_viewport=True)
-
-            bounding_box = camera_view_bounds_2d(C.scene, cam, obj)
-
-            x_min = bounding_box[0]
-            y_min = bounding_box[1]
-            width = bounding_box[2]
-            height = bounding_box[3]
-
-            print("x_min: {} y_min: {} width: {} height: {}".format(x_min, y_min, width, height))
-
-            #with open(output_folder + "/x_bounds_" + str(x) + ".txt", "w") as f:
-            #    f.write(camera_view_bounds_2d(C.scene, cam, obj) + "\n")
-
+            render(obj, angle, "x", image_index, x, c_name)
+            image_index += 1
 
         for y in range(1, upper_bound):
             angle = (start_angle * (math.pi /180)) + (y*-1) * (theta * (math.pi/180))
-            obj.rotation_euler = (0, angle, 0)
-            bpy.context.scene.render.filepath = output_folder + "/" + output_filename + "_y_{}.png".format(y)
-            bpy.ops.render.render(write_still=True, use_viewport=True)
+            render(obj, angle, "y", image_index, y, c_name)
+            image_index += 1
 
-            bounding_box = camera_view_bounds_2d(C.scene, cam, obj)
-
-            x_min = bounding_box[0]
-            y_min = bounding_box[1]
-            width = bounding_box[2]
-            height = bounding_box[3]
-
-            print("x_min: {} y_min: {} width: {} height: {}".format(x_min, y_min, width, height))
-
-            #with open(output_folder + "/y_bounds_" + str(y) + ".txt", "w") as f:
-            #    f.write(camera_view_bounds_2d(C.scene, cam, obj) + "\n")
-        '''
-
-    except Exception as msg:
-        with open(logfile,"w") as f:
-            f.write(str(msg))
+    except Exception as err:
+        logging.error("def orchestrate:: {}".format(err))
 
 
+# Download relevant .obj files from s3 and call the orchestrator
 def main():
-    global image_directory
-    global annot_directory
 
-    if not os.path.exists(output_folder):
-        os.mkdir(output_folder)
+    try:
+        # Create a tmp directory to hold all objects from the s3 bucket in args
+        if os.path.exists('./tmp'):
+            logging.info("tmp directory exists from previous run.  deleting now")
+            # delete existing tmp directory and recreate
+            shutil.rmtree('./tmp')
+        logging.info("Creating new /tmp directory")
+        os.mkdir('./tmp')
+        os.mkdir('./tmp/renders/')
+        os.mkdir('./tmp/backgrounds/')
+        os.mkdir('./tmp/final/')
 
-    if not os.path.exists(os.path.join(output_folder, "Annotations")):
-        os.mkdir(os.path.join(output_folder, "Annotations"))
+        # Download contents of s3 bucket (objects only, not subfolders)
+        get_s3_contents()
 
-    if not os.path.exists(os.path.join(output_folder, "ImageSets")):
-        os.mkdir(os.path.join(output_folder, "ImageSets"))
-
-    if not os.path.exists(os.path.join(output_folder, "JPEGImages")):
-        os.mkdir(os.path.join(output_folder, "JPEGImages"))
-
-    image_directory = os.path.join(output_folder, "JPEGImages")
-    annot_directory = os.path.join(output_folder, "Annotations")
-
-    # TODO - Convert this to a DynamoDB table query to get S3 URL of Objects
-    three_d_obj = "/home/chris/Downloads/skidsteer.obj"
-    orchestrate("skidsteer", three_d_obj)
+        if not os.listdir('./tmp'):
+            logging.error("Nothing downloaded from s3 - nothing to do!")
+        else:
+            for root, dirs, files in os.walk('./tmp'):
+                # only process the .obj files for now
+                for filename in files:
+                    class_name, ext = os.path.splitext(filename)
+                    if ext.lower() == '.obj':
+                        logging.info("processing file: {}".format(filename))
+                        orchestrate(filename, class_name)
+    except Exception as err:
+        logging.error("def main:: " + str(err))
 
 
 if __name__ == '__main__':
-    backgrounds = Backgrounds()
-    time.sleep(3)
+    logging.info("******************************")
+    logging.info("New ODIN session started job-id: {}".format(job_id))
+    logging.info("******************************")
+
+    argv = sys.argv
+    argv = argv[argv.index("--")+1:] # Get all the args after "--"
+    print(argv)
+    theta = int(sys.argv[-1])
+    logging.info("theta set to {}".format(theta))
+    s3_bucket = sys.argv[-2]
+    logging.info("s3_bucket = {}".format(s3_bucket))
     main()
