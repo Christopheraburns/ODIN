@@ -1,5 +1,7 @@
 ################
 #blender script#
+# Script uses local disk for image generation and then moves images to s3
+# burnsca@amazon.com
 ################
 
 import math
@@ -15,33 +17,70 @@ import boto3
 import shutil
 import logging
 import datetime
+import time
+
 logging.basicConfig(filename='runtime.log', level=logging.INFO)
-C = bpy.context
+C = bpy.context                         # Abbreviate the bpy.context namespace as it is used frequently
 job_id = str(datetime.datetime.now())
 job_id = job_id.replace(":", "-")
 job_id = job_id.replace(".", "-")
 job_id = job_id.replace(" ", "")
 
-s3_bucket = '' # Bucket where .obj files can be found for processing
-s3_background_bucket = 'odin-bck'
+s3_bucket = ''                          # Bucket where .obj files can be found for processing
+s3_background_bucket = 'odin-bck'       # Bucket where background images are stored
+
+# Output
 s3_output = s3_bucket + '/output/' + job_id + '/VOC'
+
+# Training
 s3_train_image_output = s3_output + "/VOCTrain/JPEGImages/"
-s3_validate_image_output = s3_output + "/VOCValid/JPEGImages/"
 s3_train_annot_output = s3_output + "/VOCTrain/Annotations/"
+s3_train_imageset_output = s3_output + "/VOCTrain/ImageSets/Main/"
+
+# Validation
+s3_validate_image_output = s3_output + "/VOCValid/JPEGImages/"
 s3_validate_annot_output = s3_output + "/VOCValid/Annotations/"
+s3_train_imageset_output = s3_output + "/VOCValid/ImageSets/Main/"
 
-
-theta = 1    # amount (in degrees) to rotate the object - on each axis - for each render
-
-# These variables are subject to change as ODIN evolves and becomes cloud native
-output_folder = "/home/chris/Desktop/blender/VOC"
-image_directory = ""
-annot_directory = ""
 # TODO - add the below variables to argparse
+theta = 1    # amount (in degrees) to rotate the object - on each axis - for each render
 upper_bound = 360
 scale_factor = 3
 target_h = 700
 target_w = 700
+
+# Function to clear old workspace if exists and create fresh folder structure
+def create_workspace():
+    try:
+        # Create a tmp directory to hold all objects from the s3 bucket in args
+        if os.path.exists('./tmp'):
+            logging.info("tmp directory exists from previous run.  deleting now")
+            # delete existing tmp directory and recreate
+            shutil.rmtree('./tmp')
+        logging.info("Creating new /tmp directory")
+        os.mkdir('./tmp')
+        os.mkdir('./tmp/renders/')
+        os.mkdir('./tmp/backgrounds/')
+        os.mkdir('./tmp/final/')
+        os.mkdir('./tmp/final/JPEGImages')
+        os.mkdir('./tmp/final/Annotations')
+    except Exception as err:
+        logging.error(err)
+
+
+
+def split_dataset():
+    # All images are in ./tmp/final/JPEGImages
+    # Count images and create dict
+    # Shuffle images
+    # Take 70% and create ImageSet list for training
+    # Take remainder and create ImageSet list for validation
+    # move Training images to S3
+    # move Validation images to S3
+    image_list = []
+    for root, folder, files in os.walk("./tmp/final/JPEGImages/"):
+        for filename in files:
+            image_list.append(filename)
 
 
 # Get the .obj files from a specified s3 bucket
@@ -124,8 +163,8 @@ def write_voc(annot_filename, height, width, depth, bbox, c_name):
 
         xml_str = ET.tostring(annot).decode()
 
-        annot_file = open(os.path.join(annot_directory, annot_filename), "w")
-        annot_file.write(xml_str)
+        with open("./tmp/final/Annotations/" + annot_filename, "w") as annot_file:
+            annot_file.write(xml_str)
 
     except Exception as msg:
         logging.error("def write_voc::" + str(msg))
@@ -289,32 +328,36 @@ def render(obj, angle, axis, index, axis_index, c_name):
         bpy.ops.render.render(write_still=True, use_viewport=True)
 
         # Get the 2D bounding box for the image
-        logging.debug("Generating 2D bounding box for VOC dataset")
+        logging.debug("Generating 2D bounding box for labelling")
         bounding_box = camera_view_bounds_2d(C.scene, cam, obj)
 
-        # get a random background image from Lambda function
-        bckgrnd = get_background()
-        bckgrnd = cv2.resize(bckgrnd, (target_h, target_w))
-
         if os.path.exists(render_name):
-            logging.debug("Cropping image before merge")
-            # Crop the image, layer image on the random background and get updated bounding box
+            logging.debug("Cropping image prior to merge")
+            # Crop the newly rendered image
             new_img, new_box = crop_image(render_name, target_h, target_w, bounding_box[0], bounding_box[1],
                                           bounding_box[3], bounding_box[2])
+
+            # TODO: ADD RANDOMIZED SCALING
+            # TODO: ADD RANDOMIZED AUGMENTATION
+            # TODO: ADD RANDOMIZED PLACEMENT DURING MERGE
+
+            # get a random background image from Lambda function
+            bckgrnd = get_background()
+            bckgrnd = cv2.resize(bckgrnd, (target_h, target_w))
 
             # Merge the cropped image with a random background
             logging.debug("Merging rendered image with background")
             final_img = overlay_transparent(bckgrnd, new_img, 0, 0)
 
             # write the final JPG
-            cv2.imwrite("./tmp/final/" + c_name + "_" + str(index) + "_" + axis + "_{}.jpg".format(axis_index), final_img)
+            cv2.imwrite("./tmp/final/JPEGImages/" + c_name + "_" + str(index) + "_" + axis + "_{}.jpg".format(axis_index), final_img)
 
             # delete the partially rendered image
             os.remove(render_name)
 
             # write the VOC File
             voc_file = c_name +  "_" + str(index) + "_" + axis + "_" + str(axis_index) + ".xml"
-            #write_voc(voc_file, target_h, target_w, 3, new_box, c_name)
+            write_voc(voc_file, target_h, target_w, 3, new_box, c_name)
         else:
             logging.error("Rendered image is unavailable for merging!")
     except Exception as err:
@@ -371,22 +414,26 @@ def orchestrate(three_d_obj, c_name):
         obj.rotation_mode = 'XYZ'
         start_angle = 0
 
-        # Rotate on the Z axis
+        # Rotate on the Zed axis
         for z in range(1, upper_bound):
             angle = (start_angle * (math.pi/180)) + (z*-1) * (theta * (math.pi/180))
             render(obj, angle, "z", image_index, z, c_name)
             image_index += 1
 
+        # Rotate on the X axis
         for x in range(1, upper_bound):
             angle = (start_angle * (math.pi/180)) + (x*-1) * (theta * (math.pi/180))
             render(obj, angle, "x", image_index, x, c_name)
             image_index += 1
 
+        # Rotate on the Y axis
         for y in range(1, upper_bound):
             angle = (start_angle * (math.pi /180)) + (y*-1) * (theta * (math.pi/180))
             render(obj, angle, "y", image_index, y, c_name)
             image_index += 1
 
+        # Split the dataset into train/validation
+        #split_dataset()
     except Exception as err:
         logging.error("def orchestrate:: {}".format(err))
 
@@ -395,16 +442,8 @@ def orchestrate(three_d_obj, c_name):
 def main():
 
     try:
-        # Create a tmp directory to hold all objects from the s3 bucket in args
-        if os.path.exists('./tmp'):
-            logging.info("tmp directory exists from previous run.  deleting now")
-            # delete existing tmp directory and recreate
-            shutil.rmtree('./tmp')
-        logging.info("Creating new /tmp directory")
-        os.mkdir('./tmp')
-        os.mkdir('./tmp/renders/')
-        os.mkdir('./tmp/backgrounds/')
-        os.mkdir('./tmp/final/')
+        start = time.time()
+        create_workspace()
 
         # Download contents of s3 bucket (objects only, not subfolders)
         get_s3_contents()
@@ -419,6 +458,9 @@ def main():
                     if ext.lower() == '.obj':
                         logging.info("processing file: {}".format(filename))
                         orchestrate(filename, class_name)
+
+        finish = time.time()
+        logging.info("dataset creation elapsed time: {}".format(finish - start))
     except Exception as err:
         logging.error("def main:: " + str(err))
 

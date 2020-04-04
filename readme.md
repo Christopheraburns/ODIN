@@ -37,9 +37,18 @@ Augmentation Engine
     • Matte the object on random background
 
 
-Background Image Server
-    Create an appropriately named S3 bucket to store background images
+Background Images
+    Create an S3 bucket to store background images. Make note of the name
     Move the contents of this file: https://odin-v1.s3.amazonaws.com/backgrounds.zip into the S3 bucket - not the zip file itself, the CONTENTS of the zip file
     Grab this manifest file here: https://odin-v1.s3.amazonaws.com/manifest.txt It is a list of all the files you moved into an s3 bucket in the previous step
-    Create a lambda function based on *this* code
-    The Lambda function, when called will go grab a random image from the background image bucket and return that image to the caller
+    Update the variable s3_background_bucket in the code to equal the name of the bucket you just created
+    
+
+Latest command line:
+blender-softwaregl --background --python script.py -- [s3 bucket] [theta]
+
+s3_bucket is where your .obj files are stored
+
+
+TODO: Speed up
+on Intel Core i7 avg 3.5 seconds per image.  Each class has 1080 images (before augmentation) = 63 minutes per class.
