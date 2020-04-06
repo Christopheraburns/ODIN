@@ -21,33 +21,32 @@ import time
 
 logging.basicConfig(filename='runtime.log', level=logging.INFO)
 C = bpy.context                         # Abbreviate the bpy.context namespace as it is used frequently
-job_id = str(datetime.datetime.now())
+job_id = str(datetime.datetime.now())   # Unique ID + run date/time for this job
 job_id = job_id.replace(":", "-")
 job_id = job_id.replace(".", "-")
 job_id = job_id.replace(" ", "")
 
+
 s3_bucket = ''                          # Bucket where .obj files can be found for processing
 s3_background_bucket = 'odin-bck'       # Bucket where background images are stored
 
-# Output
-s3_output = s3_bucket + '/output/' + job_id + '/VOC'
 
-# Training
+# S3 Folder structure
+s3_output = s3_bucket + '/output/' + job_id + '/VOC'
 s3_train_image_output = s3_output + "/VOCTrain/JPEGImages/"
 s3_train_annot_output = s3_output + "/VOCTrain/Annotations/"
 s3_train_imageset_output = s3_output + "/VOCTrain/ImageSets/Main/"
-
-# Validation
 s3_validate_image_output = s3_output + "/VOCValid/JPEGImages/"
 s3_validate_annot_output = s3_output + "/VOCValid/Annotations/"
 s3_train_imageset_output = s3_output + "/VOCValid/ImageSets/Main/"
 
 # TODO - add the below variables to argparse
-theta = 1    # amount (in degrees) to rotate the object - on each axis - for each render
-upper_bound = 360
+theta = 1               # amount (in degrees) to rotate the object - on each axis - for each render
+upper_bound = 2         # 360 degrees of total rotation
 scale_factor = 3
 target_h = 700
 target_w = 700
+
 
 # Function to clear old workspace if exists and create fresh folder structure
 def create_workspace():
@@ -59,14 +58,50 @@ def create_workspace():
             shutil.rmtree('./tmp')
         logging.info("Creating new /tmp directory")
         os.mkdir('./tmp')
-        os.mkdir('./tmp/renders/')
         os.mkdir('./tmp/backgrounds/')
-        os.mkdir('./tmp/final/')
-        os.mkdir('./tmp/final/JPEGImages')
-        os.mkdir('./tmp/final/Annotations')
+        os.mkdir('./tmp/annotations')
+        os.mkdir('./tmp/images/')
     except Exception as err:
         logging.error(err)
 
+
+def create_workspace_classes(classes):
+    global job_id
+    try:
+        for c in classes:
+            os.mkdir('./tmp/images/' + c)
+            os.mkdir('./tmp/images/' + c + '/x')
+            os.mkdir('./tmp/images/' + c + '/x/renders')
+            os.mkdir('./tmp/images/' + c + '/x/base')               # Base image as it was rendered and merged with bck
+            os.mkdir('./tmp/images/' + c + '/x/ss')                 # Scaled and shifted base image merged with bck
+            os.mkdir('./tmp/images/' + c + '/x/augmented')          # Base images augmented and merged with bck
+
+            os.mkdir('./tmp/images/' + c + '/y')
+            os.mkdir('./tmp/images/' + c + '/y/renders')
+            os.mkdir('./tmp/images/' + c + '/y/base')
+            os.mkdir('./tmp/images/' + c + '/y/ss')
+            os.mkdir('./tmp/images/' + c + '/y/augmented')
+
+            os.mkdir('./tmp/images/' + c + '/z')
+            os.mkdir('./tmp/images/' + c + '/z/renders')
+            os.mkdir('./tmp/images/' + c + '/z/base')
+            os.mkdir('./tmp/images/' + c + '/z/ss')
+            os.mkdir('./tmp/images/' + c + '/z/augmented')
+
+        # Directory Structure for VOC
+        os.mkdir('./tmp/' + job_id)
+        os.mkdir('./tmp/' + job_id + '/VOCTrain')
+        os.mkdir('./tmp/' + job_id + '/VOCTrain/JPEGImages')
+        os.mkdir('./tmp/' + job_id + '/VOCTrain/Annotations')
+        os.mkdir('./tmp/' + job_id + '/VOCTrain/ImageSets')
+        os.mkdir('./tmp/' + job_id + '/VOCTrain/ImageSets/Main')
+        os.mkdir('./tmp/' + job_id + '/VOCValid')
+        os.mkdir('./tmp/' + job_id + '/VOCValid/JPEGImages')
+        os.mkdir('./tmp/' + job_id + '/VOCValid/Annotations')
+        os.mkdir('./tmp/' + job_id + '/VOCValid/ImageSets')
+        os.mkdir('./tmp/' + job_id + '/VOCValid/ImageSets/Main')
+    except Exception as err:
+        logging.error("def create_workspace_classes:: {}".format(err))
 
 
 def split_dataset():
@@ -78,7 +113,7 @@ def split_dataset():
     # move Training images to S3
     # move Validation images to S3
     image_list = []
-    for root, folder, files in os.walk("./tmp/final/JPEGImages/"):
+    for root, folder, files in os.walk("./tmp/final/images/"):
         for filename in files:
             image_list.append(filename)
 
@@ -102,7 +137,7 @@ def get_s3_contents():
 
 # Get a random background from a Lambda function
 def get_background():
-    logging.info("Obtaining random background image from S3")
+
     m_file = 'manifest.txt'
     m_length = 5640  # Num of entries in Manifest file - update this if file is altered
     m_index = {}
@@ -111,16 +146,19 @@ def get_background():
         # Gen random number
         key = random.randrange(0, m_length+1)
 
-        # Load manifest file
+        # Load manifest file to select random background based on key
         with open(m_file) as f:
             for i, l in enumerate(f):
                 m_index[i] = l.strip()
 
-        # Download corresponding object from S3
-        with open("./tmp/backgrounds/" + m_index[key], 'wb') as f:
-            s3.download_fileobj(s3_background_bucket, m_index[key], f)
+        # Check if background has already been downloaded:
+        if not os.path.exists('./tmp/backgrounds/' + m_index[key]):
+            # Download corresponding object from S3
+            with open("./tmp/backgrounds/" + m_index[key], 'wb') as f:
+                s3.download_fileobj(s3_background_bucket, m_index[key], f)
 
         img = cv2.imread("./tmp/backgrounds/" + m_index[key])
+
         return img
 
     except Exception as err:
@@ -163,44 +201,45 @@ def write_voc(annot_filename, height, width, depth, bbox, c_name):
 
         xml_str = ET.tostring(annot).decode()
 
-        with open("./tmp/final/Annotations/" + annot_filename, "w") as annot_file:
+        with open("./tmp/annotations/" + annot_filename, "w") as annot_file:
             annot_file.write(xml_str)
 
     except Exception as msg:
         logging.error("def write_voc::" + str(msg))
 
 
-def overlay_transparent(background, overlay, x, y):
-
+# Function to merge the rendered image with a random background into a single .jpg
+def overlay_transparent(background, render, x, y):
+    #x, y = top left corner of the render
     try:
+        # Get the height and width of the background image
         background_width = background.shape[1]
         background_height = background.shape[0]
 
         if x >= background_width or y >= background_height:
             return background
 
-        h, w = overlay.shape[0], overlay.shape[1]
+        h, w = render.shape[0], render.shape[1]
 
         if x + w > background_width:
             w = background_width - x
-            overlay = overlay[:, :w]
+            render = render[:, :w]
 
         if y + h > background_height:
             h = background_height - y
-            overlay = overlay[:h]
+            render = render[:h]
 
-        if overlay.shape[2] < 4:
-            overlay = np.concatenate(
+        if render.shape[2] < 4:
+            redner = np.concatenate(
                 [
-                    overlay,
-                    np.ones((overlay.shape[0], overlay.shape[1], 1), dtype=overlay.dtype) * 255
+                    render,
+                    np.ones((render.shape[0], render.shape[1], 1), dtype=render.dtype) * 255
                 ],
                 axis=2,
             )
 
-        overlay_image = overlay[..., :3]
-        mask = overlay[..., 3:] / 255.0
-
+        overlay_image = render[..., :3]
+        mask = render[..., 3:] / 255.0
         background[y:y + h, x:x + w] = (1.0 - mask) * background[y:y + h, x:x + w] + mask * overlay_image
 
         return background
@@ -208,8 +247,16 @@ def overlay_transparent(background, overlay, x, y):
         logging.error("def overlay_transparent::" + str(msg))
 
 
-def crop_image(img, target_h, target_w, bbox_x_min, bbox_y_min, obj_height, obj_width):
+def crop_image(img, min_x, max_x, min_y, max_y):
+    cropped = img[min_y:max_y, min_x:max_x]
+    return cropped
 
+'''
+# Function to crop the newly rendered image to the target H and W
+def crop_image(img, target_h, target_w, bbox_x_min, bbox_y_min, obj_height, obj_width):
+    print(img)
+    print(target_h, target_w)
+    print(bbox_x_min, bbox_y_min, obj_height, obj_width)
     try:
         orig_img = cv2.imread(img, cv2.IMREAD_UNCHANGED)
 
@@ -233,8 +280,9 @@ def crop_image(img, target_h, target_w, bbox_x_min, bbox_y_min, obj_height, obj_
         return cropped, new_bbox
     except Exception as msg:
         logging.error("def crop_image::" + str(msg))
+'''
 
-
+# Helper function for camera_view_bounds_2d
 def clamp(x, minimum, maximum):
     return max(minimum, min(x, maximum))
 
@@ -318,7 +366,12 @@ def render(obj, angle, axis, index, axis_index, c_name):
         else:
             obj.rotation_euler = (angle, 0, 0)
 
-        render_name = "./tmp/renders/" + c_name + "_" + str(index) + "_render_" + axis + "_{}.png".format(axis_index)
+        # Get the 2D bounding box for the image
+        logging.debug("Generating 2D bounding box for labelling")
+        bounding_box = camera_view_bounds_2d(C.scene, cam, obj)
+
+        render_name = "./tmp/images/" + c_name + "/" + axis + "/renders/" + axis + "_{}-{}-{}-{}-{}.png".format(
+            axis_index, bounding_box[0], bounding_box[1], bounding_box[2], bounding_box[3])
 
         # Render the 3D object as an image
         bpy.context.scene.render.filepath = render_name
@@ -327,41 +380,112 @@ def render(obj, angle, axis, index, axis_index, c_name):
         # TODO EXPLORE WRITING TO A NUMPY ARRAY RATHER THAN DISK FOR BETTER PERFORMANCE
         bpy.ops.render.render(write_still=True, use_viewport=True)
 
-        # Get the 2D bounding box for the image
-        logging.debug("Generating 2D bounding box for labelling")
-        bounding_box = camera_view_bounds_2d(C.scene, cam, obj)
 
+        # Rendering sends the entire scene to an image file. Crop it down to our bounding boxes
+        # After the crop, the rendered image size IS the bounding box.
         if os.path.exists(render_name):
-            logging.debug("Cropping image prior to merge")
-            # Crop the newly rendered image
-            new_img, new_box = crop_image(render_name, target_h, target_w, bounding_box[0], bounding_box[1],
-                                          bounding_box[3], bounding_box[2])
+            img = cv2.imread(render_name, cv2.IMREAD_UNCHANGED)
+            min_y = int(bounding_box[2])
+            max_y = int(bounding_box[2]) + int(bounding_box[3])
+            min_x = int(bounding_box[0])
+            max_x = int(bounding_box[0]) + int(bounding_box[1])
+            cropped = img[min_y:max_y, min_x:max_x]
 
-            # TODO: ADD RANDOMIZED SCALING
-            # TODO: ADD RANDOMIZED AUGMENTATION
-            # TODO: ADD RANDOMIZED PLACEMENT DURING MERGE
-
-            # get a random background image from Lambda function
-            bckgrnd = get_background()
-            bckgrnd = cv2.resize(bckgrnd, (target_h, target_w))
-
-            # Merge the cropped image with a random background
-            logging.debug("Merging rendered image with background")
-            final_img = overlay_transparent(bckgrnd, new_img, 0, 0)
-
-            # write the final JPG
-            cv2.imwrite("./tmp/final/JPEGImages/" + c_name + "_" + str(index) + "_" + axis + "_{}.jpg".format(axis_index), final_img)
-
-            # delete the partially rendered image
             os.remove(render_name)
-
-            # write the VOC File
-            voc_file = c_name +  "_" + str(index) + "_" + axis + "_" + str(axis_index) + ".xml"
-            write_voc(voc_file, target_h, target_w, 3, new_box, c_name)
-        else:
-            logging.error("Rendered image is unavailable for merging!")
+            cv2.imwrite(render_name, cropped)
     except Exception as err:
         logging.error("def render:: {}".format(err))
+
+
+# function to create a base set of images based on the rendered image and a background
+def create_base_images(c_name):
+    try:
+
+        axis = ['x', 'y', 'z']
+        for ax in axis:
+            for root, dir, files in os.walk("./tmp/images/" + c_name + "/" + ax + "/renders"):
+                for filename in files:
+                    # Pull data out of the filename
+                    data, ext = os.path.splitext(filename)
+
+                    elements = data.split("-")
+                    a = elements[0]
+                    bounding_box = [elements[1], elements[2], elements[3], elements[4]]
+
+                    logging.debug("Cropping image prior to merge")
+                    # Crop the newly rendered image
+                    #new_img, new_box = crop_image("./tmp/images/" + c_name + "/" + ax + "/renders/" + filename,
+                    #                              target_h, target_w, float(bounding_box[0]), float(bounding_box[1]),
+                    #                              float(bounding_box[3]), float(bounding_box[2]))
+
+                    # Get the rendered image
+                    new_img = cv2.imread("./tmp/images/" + c_name + "/" + ax + "/renders/" + filename,
+                                         cv2.IMREAD_UNCHANGED)
+
+
+                    # get a random background image from Lambda function
+                    bckgrnd = get_background()
+                    bckgrnd = cv2.resize(bckgrnd, (target_h, target_w))
+
+                    # Merge the cropped image with a random background
+                    logging.debug("Merging rendered image with background")
+
+                    # Find center of desired Image height and width
+                    x = target_w / 2
+                    y = target_h / 2
+
+                    # find center of Rendered image height and width
+                    xx = new_img.shape[1] / 2
+                    yy = new_img.shape[0] / 2
+                    center_x = int(round(x - xx))
+                    center_y = int(round(y - yy))
+
+                    final_img = overlay_transparent(bckgrnd, new_img, center_x, center_y)
+                    new_box = [int(center_x), int(new_img.shape[1]), int(center_y), int(new_img.shape[0])]
+                    # write the final JPG
+                    diskname = c_name + "_" + a + "_base"
+                    cv2.imwrite("./tmp/images/" + c_name + "/" + ax + "/base/" + diskname + ".jpg", final_img)
+
+                    # write the VOC File
+                    voc_file = diskname + ".xml"
+                    write_voc(voc_file, target_h, target_w, 3, new_box, c_name)
+
+    except Exception as err:
+        logging.error("def create_base_image::{}".format(err))
+
+
+# function to create images with the object offcentered in a spiral pattern
+def create_shifted_images(c_name):
+
+    try:
+        axis = ['x', 'y', 'z']
+        for ax in axis:
+            for root, dir, files in os.walk("./tmp/images/" + c_name + "/" + ax + "/renders"):
+                for filename in files:
+                    # Pull data out of the filename
+                    data, ext = os.path.splitext(filename)
+
+                    elements = data.split("-")
+                    a = elements[0]
+                    bounding_box = [elements[1], elements[2], elements[3], elements[4]]
+
+                    logging.debug("Cropping image prior to merge")
+                    # Crop the newly rendered image
+                    new_img, new_box = crop_image("./tmp/images/" + c_name + "/" + ax + "/renders/" + filename,
+                                                  target_h, target_w, float(bounding_box[0]), float(bounding_box[1]),
+                                                  float(bounding_box[3]), float(bounding_box[2]))
+
+                    # get a random background image from Lambda function
+                    bckgrnd = get_background()
+                    bckgrnd = cv2.resize(bckgrnd, (target_h, target_w))
+
+                    # Merge the cropped image with a random background
+                    logging.debug("Merging rendered image with background")
+                    final_img = overlay_transparent(bckgrnd, new_img, 0, 0)
+
+
+    except Exception as err:
+        logging.error("def create_shifted_images:: {}".format(err))
 
 
 # Orchestrator loads the .obj file into blender workspace
@@ -369,8 +493,6 @@ def render(obj, angle, axis, index, axis_index, c_name):
 # The single mesh is than scaled appropriately
 # Finally the mesh is rotated by theta on each axis and an image is rendered to disk
 def orchestrate(three_d_obj, c_name):
-    global image_directory
-    global annot_directory
     global theta
     try:
         image_index = 0
@@ -381,7 +503,6 @@ def orchestrate(three_d_obj, c_name):
         # add object
         bpy.ops.import_scene.obj(filepath='./tmp/' + three_d_obj)
 
-        # We don't need to join objects in Blender 2.8x
         # TODO - Determine which type of models need to be joined and which do not so we don't break this
 
         if len(C.scene.objects) > 3:
@@ -428,21 +549,30 @@ def orchestrate(three_d_obj, c_name):
 
         # Rotate on the Y axis
         for y in range(1, upper_bound):
-            angle = (start_angle * (math.pi /180)) + (y*-1) * (theta * (math.pi/180))
+            angle = (start_angle * (math.pi/180)) + (y*-1) * (theta * (math.pi/180))
             render(obj, angle, "y", image_index, y, c_name)
             image_index += 1
 
+        create_base_images(c_name)
+        # TODO: ADD RANDOMIZED SCALING
+        # TODO: ADD RANDOMIZED AUGMENTATION
+        # TODO: ADD RANDOMIZED PLACEMENT DURING MERGE
+        #create_shifted_images()
+        #create_augmented_images()
+
+
         # Split the dataset into train/validation
-        #split_dataset()
+        split_dataset()
     except Exception as err:
         logging.error("def orchestrate:: {}".format(err))
 
 
 # Download relevant .obj files from s3 and call the orchestrator
 def main():
-
+    classes = []
     try:
         start = time.time()
+
         create_workspace()
 
         # Download contents of s3 bucket (objects only, not subfolders)
@@ -451,6 +581,15 @@ def main():
         if not os.listdir('./tmp'):
             logging.error("Nothing downloaded from s3 - nothing to do!")
         else:
+            for root, dirs, files in os.walk('./tmp'):
+                # only process the .obj files for now
+                for filename in files:
+                    class_name, ext = os.path.splitext(filename)
+                    if ext.lower() == '.obj':
+                        classes.append(class_name)
+
+            create_workspace_classes(classes)
+
             for root, dirs, files in os.walk('./tmp'):
                 # only process the .obj files for now
                 for filename in files:
