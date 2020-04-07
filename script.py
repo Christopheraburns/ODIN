@@ -6,6 +6,8 @@
 
 import math
 from mathutils import *
+from math import cos, sin, pi
+from numpy import linspace
 import bpy
 import random
 import cv2
@@ -26,9 +28,13 @@ job_id = job_id.replace(":", "-")
 job_id = job_id.replace(".", "-")
 job_id = job_id.replace(" ", "")
 
-
 s3_bucket = ''                          # Bucket where .obj files can be found for processing
 s3_background_bucket = 'odin-bck'       # Bucket where background images are stored
+spiral_iteration = 0                    # current number of steps taken along the spiral trajectory
+spiral_shift_x = []                      # X coordinate of current position on spiral trajectory
+spiral_shift_y = []                      # Y coordinate of current position on spiral trajectory
+for theta in linspace(0, 10*pi):
+    r = theta
 
 
 # S3 Folder structure
@@ -41,7 +47,7 @@ s3_validate_annot_output = s3_output + "/VOCValid/Annotations/"
 s3_train_imageset_output = s3_output + "/VOCValid/ImageSets/Main/"
 
 # TODO - add the below variables to argparse
-theta = 1               # amount (in degrees) to rotate the object - on each axis - for each render
+rotation_theta = 1      # amount (in degrees) to rotate the object - on each axis - for each render
 upper_bound = 2         # 360 degrees of total rotation
 scale_factor = 3
 target_h = 700
@@ -254,14 +260,10 @@ def crop_image(img, min_x, max_x, min_y, max_y):
 '''
 # Function to crop the newly rendered image to the target H and W
 def crop_image(img, target_h, target_w, bbox_x_min, bbox_y_min, obj_height, obj_width):
-    print(img)
-    print(target_h, target_w)
-    print(bbox_x_min, bbox_y_min, obj_height, obj_width)
-    try:
-        orig_img = cv2.imread(img, cv2.IMREAD_UNCHANGED)
 
+    try:
         # Height = Y axis | Width = X axis
-        cur_h, cur_w, _ = orig_img.shape
+        cur_h, cur_w, _ = img.shape
         y_ax_crop = cur_h - target_h
         x_ax_crop = cur_w - target_w
 
@@ -380,18 +382,19 @@ def render(obj, angle, axis, index, axis_index, c_name):
         # TODO EXPLORE WRITING TO A NUMPY ARRAY RATHER THAN DISK FOR BETTER PERFORMANCE
         bpy.ops.render.render(write_still=True, use_viewport=True)
 
-
         # Rendering sends the entire scene to an image file. Crop it down to our bounding boxes
         # After the crop, the rendered image size IS the bounding box.
         if os.path.exists(render_name):
             img = cv2.imread(render_name, cv2.IMREAD_UNCHANGED)
-            min_y = int(bounding_box[2])
-            max_y = int(bounding_box[2]) + int(bounding_box[3])
             min_x = int(bounding_box[0])
-            max_x = int(bounding_box[0]) + int(bounding_box[1])
+            min_y = int(bounding_box[1])
+            max_x = min_x + int(bounding_box[2])
+            max_y = min_y + int(bounding_box[3])
             cropped = img[min_y:max_y, min_x:max_x]
 
+            # Remove the original render from disk
             os.remove(render_name)
+            # Write the newly cropped render to disk
             cv2.imwrite(render_name, cropped)
     except Exception as err:
         logging.error("def render:: {}".format(err))
@@ -400,7 +403,10 @@ def render(obj, angle, axis, index, axis_index, c_name):
 # function to create a base set of images based on the rendered image and a background
 def create_base_images(c_name):
     try:
-
+        # Bounding_box[0] = min_x
+        # Bounding_box[1] = min_y
+        # Bounding_box[2] = max_x (width)
+        # Bounding_box[3] = max_y (height)
         axis = ['x', 'y', 'z']
         for ax in axis:
             for root, dir, files in os.walk("./tmp/images/" + c_name + "/" + ax + "/renders"):
@@ -412,37 +418,42 @@ def create_base_images(c_name):
                     a = elements[0]
                     bounding_box = [elements[1], elements[2], elements[3], elements[4]]
 
-                    logging.debug("Cropping image prior to merge")
-                    # Crop the newly rendered image
-                    #new_img, new_box = crop_image("./tmp/images/" + c_name + "/" + ax + "/renders/" + filename,
-                    #                              target_h, target_w, float(bounding_box[0]), float(bounding_box[1]),
-                    #                              float(bounding_box[3]), float(bounding_box[2]))
-
-                    # Get the rendered image
+                    # Read the rendered image from disk
                     new_img = cv2.imread("./tmp/images/" + c_name + "/" + ax + "/renders/" + filename,
                                          cv2.IMREAD_UNCHANGED)
 
-
-                    # get a random background image from Lambda function
+                    # get a random background image from S3 or local cache
                     bckgrnd = get_background()
                     bckgrnd = cv2.resize(bckgrnd, (target_h, target_w))
 
+                    # ########
                     # Merge the cropped image with a random background
+                    # ########
                     logging.debug("Merging rendered image with background")
 
-                    # Find center of desired Image height and width
+                    # Find center point of background image
                     x = target_w / 2
                     y = target_h / 2
 
-                    # find center of Rendered image height and width
+                    # find center point of rendered image
                     xx = new_img.shape[1] / 2
                     yy = new_img.shape[0] / 2
-                    center_x = int(round(x - xx))
-                    center_y = int(round(y - yy))
 
-                    final_img = overlay_transparent(bckgrnd, new_img, center_x, center_y)
-                    new_box = [int(center_x), int(new_img.shape[1]), int(center_y), int(new_img.shape[0])]
-                    # write the final JPG
+                    # Subtract center point (X,Y) of rendered image from the center point (X, Y) of the background image
+                    # to position the rendered image in the center of the background
+                    x_min = int(round(x - xx))
+                    y_min = int(round(y - yy))
+
+                    # Merge the background and rendered image
+                    final_img = overlay_transparent(bckgrnd, new_img, x_min, y_min)
+
+                    # ######
+                    # Update the bounding box info for the newly created image
+                    # ######
+                    # x_min, y_min is now the top left corner of the bounding box
+                    new_box = [x_min, y_min, int(x_min + new_img.shape[1]), int(y_min + new_img.shape[0])]
+
+                    # write the final .JPG to disk
                     diskname = c_name + "_" + a + "_base"
                     cv2.imwrite("./tmp/images/" + c_name + "/" + ax + "/base/" + diskname + ".jpg", final_img)
 
@@ -454,9 +465,12 @@ def create_base_images(c_name):
         logging.error("def create_base_image::{}".format(err))
 
 
-# function to create images with the object offcentered in a spiral pattern
-def create_shifted_images(c_name):
-
+# function to create images with the object off-centered in a spiral pattern on the background
+def create_spiral_shift_images(c_name):
+    # Bounding_box[0] = min_x
+    # Bounding_box[1] = min_y
+    # Bounding_box[2] = max_x (width)
+    # Bounding_box[3] = max_y (height)
     try:
         axis = ['x', 'y', 'z']
         for ax in axis:
@@ -469,23 +483,15 @@ def create_shifted_images(c_name):
                     a = elements[0]
                     bounding_box = [elements[1], elements[2], elements[3], elements[4]]
 
-                    logging.debug("Cropping image prior to merge")
-                    # Crop the newly rendered image
-                    new_img, new_box = crop_image("./tmp/images/" + c_name + "/" + ax + "/renders/" + filename,
-                                                  target_h, target_w, float(bounding_box[0]), float(bounding_box[1]),
-                                                  float(bounding_box[3]), float(bounding_box[2]))
-
-                    # get a random background image from Lambda function
+                    # get a random background image from S3
                     bckgrnd = get_background()
                     bckgrnd = cv2.resize(bckgrnd, (target_h, target_w))
 
-                    # Merge the cropped image with a random background
-                    logging.debug("Merging rendered image with background")
-                    final_img = overlay_transparent(bckgrnd, new_img, 0, 0)
+
 
 
     except Exception as err:
-        logging.error("def create_shifted_images:: {}".format(err))
+        logging.error("def create_spiral_shift_images:: {}".format(err))
 
 
 # Orchestrator loads the .obj file into blender workspace
@@ -493,7 +499,7 @@ def create_shifted_images(c_name):
 # The single mesh is than scaled appropriately
 # Finally the mesh is rotated by theta on each axis and an image is rendered to disk
 def orchestrate(three_d_obj, c_name):
-    global theta
+    global rotation_theta
     try:
         image_index = 0
 
@@ -510,7 +516,7 @@ def orchestrate(three_d_obj, c_name):
             for ob in C.scene.objects:
                 if ob.type == "MESH":
                     ob.select_set(True)
-                    # TODO - this makes the assumption there is only one mesh  - could end badly
+                    # TODO - this makes the assumption there is only one mesh  - it could end badly
                     bpy.context.view_layer.objects.active = ob
                 else:
                     ob.select_set(False)
@@ -537,19 +543,19 @@ def orchestrate(three_d_obj, c_name):
 
         # Rotate on the Zed axis
         for z in range(1, upper_bound):
-            angle = (start_angle * (math.pi/180)) + (z*-1) * (theta * (math.pi/180))
+            angle = (start_angle * (math.pi/180)) + (z*-1) * (rotation_theta * (math.pi/180))
             render(obj, angle, "z", image_index, z, c_name)
             image_index += 1
 
         # Rotate on the X axis
         for x in range(1, upper_bound):
-            angle = (start_angle * (math.pi/180)) + (x*-1) * (theta * (math.pi/180))
+            angle = (start_angle * (math.pi/180)) + (x*-1) * (rotation_theta * (math.pi/180))
             render(obj, angle, "x", image_index, x, c_name)
             image_index += 1
 
         # Rotate on the Y axis
         for y in range(1, upper_bound):
-            angle = (start_angle * (math.pi/180)) + (y*-1) * (theta * (math.pi/180))
+            angle = (start_angle * (math.pi/180)) + (y*-1) * (rotation_theta * (math.pi/180))
             render(obj, angle, "y", image_index, y, c_name)
             image_index += 1
 
@@ -557,7 +563,7 @@ def orchestrate(three_d_obj, c_name):
         # TODO: ADD RANDOMIZED SCALING
         # TODO: ADD RANDOMIZED AUGMENTATION
         # TODO: ADD RANDOMIZED PLACEMENT DURING MERGE
-        #create_shifted_images()
+        #create_spiral_shift_images(c_name)
         #create_augmented_images()
 
 
