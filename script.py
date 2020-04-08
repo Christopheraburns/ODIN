@@ -30,11 +30,13 @@ job_id = job_id.replace(" ", "")
 
 s3_bucket = ''                          # Bucket where .obj files can be found for processing
 s3_background_bucket = 'odin-bck'       # Bucket where background images are stored
-spiral_iteration = 0                    # current number of steps taken along the spiral trajectory
-spiral_shift_x = []                      # X coordinate of current position on spiral trajectory
-spiral_shift_y = []                      # Y coordinate of current position on spiral trajectory
-for theta in linspace(0, 10*pi):
-    r = theta
+
+
+# Generate a spiral trajectory
+theta = np.radians(np.linspace(0, 360*4, 360))
+r = theta**2
+spiral_trajectory_x = r*np.cos(theta)   # X coordinate of current position on spiral trajectory
+spiral_trajectory_y = r*np.sin(theta)   # Y coordinate of current position on spiral trajectory
 
 
 # S3 Folder structure
@@ -48,7 +50,7 @@ s3_train_imageset_output = s3_output + "/VOCValid/ImageSets/Main/"
 
 # TODO - add the below variables to argparse
 rotation_theta = 1      # amount (in degrees) to rotate the object - on each axis - for each render
-upper_bound = 2         # 360 degrees of total rotation
+upper_bound = 360       # 360 degrees of total rotation
 scale_factor = 3
 target_h = 700
 target_w = 700
@@ -110,7 +112,7 @@ def create_workspace_classes(classes):
         logging.error("def create_workspace_classes:: {}".format(err))
 
 
-def split_dataset():
+def split():
     # All images are in ./tmp/final/JPEGImages
     # Count images and create dict
     # Shuffle images
@@ -467,6 +469,7 @@ def create_base_images(c_name):
 
 # function to create images with the object off-centered in a spiral pattern on the background
 def create_spiral_shift_images(c_name):
+    spiral_iteration = 1  # current number of steps taken along the spiral trajectory
     # Bounding_box[0] = min_x
     # Bounding_box[1] = min_y
     # Bounding_box[2] = max_x (width)
@@ -475,7 +478,7 @@ def create_spiral_shift_images(c_name):
         axis = ['x', 'y', 'z']
         for ax in axis:
             for root, dir, files in os.walk("./tmp/images/" + c_name + "/" + ax + "/renders"):
-                for filename in files:
+                for filename in files:  # Should be 359
                     # Pull data out of the filename
                     data, ext = os.path.splitext(filename)
 
@@ -483,18 +486,73 @@ def create_spiral_shift_images(c_name):
                     a = elements[0]
                     bounding_box = [elements[1], elements[2], elements[3], elements[4]]
 
+                    # Read the rendered image from disk
+                    new_img = cv2.imread("./tmp/images/" + c_name + "/" + ax + "/renders/" + filename,
+                                         cv2.IMREAD_UNCHANGED)
+
                     # get a random background image from S3
                     bckgrnd = get_background()
                     bckgrnd = cv2.resize(bckgrnd, (target_h, target_w))
 
+                    # Get the center point of the background image
+                    center_x = target_w / 2
+                    center_y = target_h / 2
 
+                    logging.debug("Background center point = {},{}".format(center_x, center_y))
 
+                    # Get the spiral trajectory coordinates
+                    spiral_x = spiral_trajectory_x[spiral_iteration]
+                    spiral_y = spiral_trajectory_y[spiral_iteration]
+
+                    logging.debug("Spiral trajectory point = {},{}".format(spiral_x, spiral_y))
+
+                    # Top left corner of the image os center point - spiral point
+                    x_min = 0
+                    y_min = 0
+
+                    if spiral_x < 0:
+                        x_min = int(center_x - abs(spiral_x))
+                    else:
+                        x_min = int(center_x + abs(spiral_x))
+
+                    if spiral_y < 0:
+                        y_min = int(center_y - abs(spiral_y))
+                    else:
+                        y_min = int(center_y - abs(spiral_y))
+
+                    logging.debug("Top left corner of render = {}, {}".format(x_min, y_min))
+
+                    # Merge the background and rendered image
+                    final_img = overlay_transparent(bckgrnd, new_img, x_min, y_min)
+
+                    # ######
+                    # Update the bounding box info for the newly created image
+                    # TODO - if bounding box exceeds target_h or target_w adjust bounding box to edges of target
+                    # ######
+                    # x_min, y_min is now the top left corner of the bounding box
+                    x_max = int(x_min + new_img.shape[1])
+                    y_max = int(y_min + new_img.shape[0])
+
+                    if x_max > target_w: x_max = target_w
+                    if y_max > target_h: y_max = target_h
+
+                    new_box = [x_min, y_min, x_max, y_max]
+
+                    # write the final .JPG to disk
+                    diskname = c_name + "_" + a + "_ss_" + str(spiral_iteration)
+                    cv2.imwrite("./tmp/images/" + c_name + "/" + ax + "/ss/" + diskname + ".jpg", final_img)
+
+                    # write the VOC File
+                    voc_file = diskname + ".xml"
+                    write_voc(voc_file, target_h, target_w, 3, new_box, c_name)
+
+                    spiral_iteration += 1
 
     except Exception as err:
         logging.error("def create_spiral_shift_images:: {}".format(err))
 
 
-# Orchestrator loads the .obj file into blender workspace
+# Orchestrator loads the .obj file into blender workspace, thus orchestrate runs for each class
 # If the object is independent meshes, it merges the meshes into a single mesh
 # The single mesh is than scaled appropriately
 # Finally the mesh is rotated by theta on each axis and an image is rendered to disk
@@ -562,13 +620,12 @@ def orchestrate(three_d_obj, c_name):
         create_base_images(c_name)
         # TODO: ADD RANDOMIZED SCALING
         # TODO: ADD RANDOMIZED AUGMENTATION
-        # TODO: ADD RANDOMIZED PLACEMENT DURING MERGE
-        #create_spiral_shift_images(c_name)
+        create_spiral_shift_images(c_name)
         #create_augmented_images()
 
 
         # Split the dataset into train/validation
-        split_dataset()
+        split(c_name)
     except Exception as err:
         logging.error("def orchestrate:: {}".format(err))
 
