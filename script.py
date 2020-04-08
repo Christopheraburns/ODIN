@@ -32,12 +32,14 @@ s3_bucket = ''                          # Bucket where .obj files can be found f
 s3_background_bucket = 'odin-bck'       # Bucket where background images are stored
 
 
-# Generate a spiral trajectory
-theta = np.radians(np.linspace(0, 360*4, 360))
+spiral_trajectory_points = 90           # Number of points along the spiral trajectory to use as overlay anchors
+theta = np.radians(np.linspace(0, 360*4, spiral_trajectory_points))
 r = theta**2
 spiral_trajectory_x = r*np.cos(theta)   # X coordinate of current position on spiral trajectory
 spiral_trajectory_y = r*np.sin(theta)   # Y coordinate of current position on spiral trajectory
-
+#plt.figure(figsize=[10, 10])
+#plt.plot(spiral_trajectory_x, spiral_trajectory_y)
+#plt.show()
 
 # S3 Folder structure
 s3_output = s3_bucket + '/output/' + job_id + '/VOC'
@@ -54,6 +56,7 @@ upper_bound = 360       # 360 degrees of total rotation
 scale_factor = 3
 target_h = 700
 target_w = 700
+train_set_percent = .7
 
 
 # Function to clear old workspace if exists and create fresh folder structure
@@ -112,18 +115,65 @@ def create_workspace_classes(classes):
         logging.error("def create_workspace_classes:: {}".format(err))
 
 
-def split():
-    # All images are in ./tmp/final/JPEGImages
-    # Count images and create dict
-    # Shuffle images
-    # Take 70% and create ImageSet list for training
-    # Take remainder and create ImageSet list for validation
-    # move Training images to S3
-    # move Validation images to S3
-    image_list = []
-    for root, folder, files in os.walk("./tmp/final/images/"):
-        for filename in files:
-            image_list.append(filename)
+# Function to iterate each class and axis, move 70% to VOCTrain and 30% to VOCValid
+def split(c_name, axis):
+    global train_set_size
+    try:
+        for root, directory, files in os.walk('./tmp/images/' + c_name + '/' + axis):
+            for img_type in directory:
+
+                if img_type != 'renders':
+                    print(img_type)
+                    image_list = []
+                    for r, dir, filenames in os.walk('./tmp/images/' + c_name + '/' + axis + '/' + img_type):
+                        for file in filenames:
+                            image_list.append(file)
+
+                    img_source = './tmp/images/' + c_name + '/' + axis + '/' + img_type + '/'
+                    annot_source = './tmp/annotations/'
+                    voctrain_img_dest = './tmp/' + job_id + '/VOCTrain/JPEGImages/'
+                    vocvalid_img_dest = './tmp/' + job_id + '/VOCValid/JPEGImages/'
+                    voctrain_annot_dest = './tmp/' + job_id + '/VOCTrain/Annotations/'
+                    vocvalid_annot_dest = './tmp/' + job_id + '/VOCValid/Annotations/'
+                    voctrain_set_dest = './tmp/' + job_id + '/VOCTrain/ImageSets/Main/train.txt'
+                    vocvalid_set_dest = './tmp/' + job_id + '/VOCValid/ImageSets/Main/valid.txt'
+
+                    random.shuffle(image_list)
+                    # Get 70% for training
+                    train_set_size = round(len(image_list) * train_set_percent)
+
+                    # Copy the train_set % VOC structure (training)
+                    sev = range(0, train_set_size)
+                    for i in sev:
+                        file = image_list[i]
+                        # Copy Image file to VOCTrain
+                        shutil.copyfile(img_source + file, voctrain_img_dest + file)
+
+                        # Copy Annot file to VOCTrain
+                        file_name, ext = os.path.splitext(file)
+                        shutil.copyfile(annot_source + file_name + '.xml', voctrain_annot_dest + file_name + '.xml')
+
+                        # Write filename to train.txt
+                        with open(voctrain_set_dest, 'a+') as f:
+                            f.write(file_name + "\n")
+
+                    # Copy the remaining % to VOC structure (validation)
+                    thi = range(train_set_size + 1, len(image_list))
+                    for i in thi:
+                        file = image_list[i]
+                        # Copy Image for to VOCValid
+                        shutil.copyfile(img_source + file, vocvalid_img_dest + file)
+
+                        # Copy Annot file to VOCValid
+                        file_name, ext = os.path.splitext(file)
+                        shutil.copyfile(annot_source + file_name + '.xml', vocvalid_annot_dest + file_name + '.xml')
+
+                        # Write filename to valid.txt
+                        with open(vocvalid_set_dest, 'a+') as f:
+                            f.write(file_name + "\n")
+
+    except Exception as err:
+        print(err)
 
 
 # Get the .obj files from a specified s3 bucket
@@ -217,28 +267,33 @@ def write_voc(annot_filename, height, width, depth, bbox, c_name):
 
 
 # Function to merge the rendered image with a random background into a single .jpg
-def overlay_transparent(background, render, x, y):
+def overlay_transparent(background, render, anchor_x, anchor_y):
     #x, y = top left corner of the render
     try:
         # Get the height and width of the background image
         background_width = background.shape[1]
         background_height = background.shape[0]
 
-        if x >= background_width or y >= background_height:
-            return background
+        if anchor_x >= background_width:
+            print("x anchor is greater than background width")
+            raise ValueError("x anchor is greater than background width")
+
+        if anchor_y >= background_height:
+            print("y anchor is greater than background height")
+            raise ValueError("y anchor is greater than background height")
 
         h, w = render.shape[0], render.shape[1]
 
-        if x + w > background_width:
-            w = background_width - x
+        if anchor_x + w > background_width:
+            w = background_width - anchor_x
             render = render[:, :w]
 
-        if y + h > background_height:
-            h = background_height - y
+        if anchor_y + h > background_height:
+            h = background_height - anchor_y
             render = render[:h]
 
         if render.shape[2] < 4:
-            redner = np.concatenate(
+            render = np.concatenate(
                 [
                     render,
                     np.ones((render.shape[0], render.shape[1], 1), dtype=render.dtype) * 255
@@ -248,43 +303,20 @@ def overlay_transparent(background, render, x, y):
 
         overlay_image = render[..., :3]
         mask = render[..., 3:] / 255.0
-        background[y:y + h, x:x + w] = (1.0 - mask) * background[y:y + h, x:x + w] + mask * overlay_image
+        background[anchor_y:anchor_y + h, anchor_x:anchor_x + w] = (1.0 - mask) * \
+                                                     background[anchor_y:anchor_y + h, anchor_x:anchor_x + w] + \
+                                                                   mask * overlay_image
 
         return background
     except Exception as msg:
-        logging.error("def overlay_transparent::" + str(msg))
+        #logging.error("def overlay_transparent::" + str(msg))
+        print(msg)
 
 
 def crop_image(img, min_x, max_x, min_y, max_y):
     cropped = img[min_y:max_y, min_x:max_x]
     return cropped
 
-'''
-# Function to crop the newly rendered image to the target H and W
-def crop_image(img, target_h, target_w, bbox_x_min, bbox_y_min, obj_height, obj_width):
-
-    try:
-        # Height = Y axis | Width = X axis
-        cur_h, cur_w, _ = img.shape
-        y_ax_crop = cur_h - target_h
-        x_ax_crop = cur_w - target_w
-
-        new_x_bbox_min = bbox_x_min - x_ax_crop/2
-        new_y_bbox_min = bbox_y_min - y_ax_crop/2
-
-        new_x_min = int(x_ax_crop/2)
-        new_x_max = int(cur_w - (x_ax_crop/2))
-        new_y_min = int(y_ax_crop/2)
-        new_y_max = int(cur_h - (y_ax_crop/2))
-
-        new_bbox = [new_x_bbox_min, new_y_bbox_min, new_x_bbox_min+obj_width, new_y_bbox_min+obj_height]
-
-        cropped = orig_img[new_y_min:new_y_max, new_x_min:new_x_max]
-
-        return cropped, new_bbox
-    except Exception as msg:
-        logging.error("def crop_image::" + str(msg))
-'''
 
 # Helper function for camera_view_bounds_2d
 def clamp(x, minimum, maximum):
@@ -469,6 +501,7 @@ def create_base_images(c_name):
 
 # function to create images with the object off-centered in a spiral pattern on the background
 def create_spiral_shift_images(c_name):
+    global spiral_trajectory_points
     spiral_iteration = 1  # current number of steps taken along the spiral trajectory
     # Bounding_box[0] = min_x
     # Bounding_box[1] = min_y
@@ -476,6 +509,7 @@ def create_spiral_shift_images(c_name):
     # Bounding_box[3] = max_y (height)
     try:
         axis = ['x', 'y', 'z']
+        file_index = -1
         for ax in axis:
             for root, dir, files in os.walk("./tmp/images/" + c_name + "/" + ax + "/renders"):
                 for filename in files:  # Should be 359
@@ -490,6 +524,9 @@ def create_spiral_shift_images(c_name):
                     new_img = cv2.imread("./tmp/images/" + c_name + "/" + ax + "/renders/" + filename,
                                          cv2.IMREAD_UNCHANGED)
 
+                    overlay_w = new_img.shape[1]
+                    overlay_h = new_img.shape[0]
+
                     # get a random background image from S3
                     bckgrnd = get_background()
                     bckgrnd = cv2.resize(bckgrnd, (target_h, target_w))
@@ -501,26 +538,58 @@ def create_spiral_shift_images(c_name):
                     logging.debug("Background center point = {},{}".format(center_x, center_y))
 
                     # Get the spiral trajectory coordinates
-                    spiral_x = spiral_trajectory_x[spiral_iteration]
-                    spiral_y = spiral_trajectory_y[spiral_iteration]
+                    spiral_x = int(spiral_trajectory_x[spiral_iteration])   # Round by casting to int8
+                    spiral_y = int(spiral_trajectory_y[spiral_iteration])   # Round by casting to int8
+
+                    # Spiral point is based on 0,0 being in the center of the background image.
+                    # we need to modify center_x & center_y point based on spiral_x and spiral_y.
 
                     logging.debug("Spiral trajectory point = {},{}".format(spiral_x, spiral_y))
 
-                    # Top left corner of the image os center point - spiral point
                     x_min = 0
                     y_min = 0
 
-                    if spiral_x < 0:
+                    # X
+                    # Top left corner of the rendered image = spiral point
+                    if spiral_x == 0:   # Spiral point and background center point are equal at zero
+                        x_min = int(center_x)
+                    elif spiral_x > 0:  # Spiral point is to the right of background center
+                        x_min = int(center_x + spiral_x)
+                    else:               # Spiral point is to the left of background center
                         x_min = int(center_x - abs(spiral_x))
-                    else:
-                        x_min = int(center_x + abs(spiral_x))
 
-                    if spiral_y < 0:
-                        y_min = int(center_y - abs(spiral_y))
+                    two_five = int(overlay_w * .25)
+                    seventy_five = int(overlay_w * .75)
+
+                    # Make sure at least 25% of the overlay is showing in positive width
+                    if x_min >= target_w - two_five:
+                        # bump it back so at least 25% of the object is visible on background
+                        x_min = int(target_w - two_five)
+
+                    if x_min < 0:
+                        x_min = 1
+
+                    # Y
+                    if spiral_y == 0:
+                        y_min = int(center_y)
+                    elif spiral_y > 0: #
+                        y_min = int(center_y + spiral_y)
                     else:
                         y_min = int(center_y - abs(spiral_y))
+
+                    two_five = int(overlay_h * .25)
+                    seventy_five = int(overlay_h * .75)
+
+                    # Make sure it did not move beyond the height of background
+                    if y_min >= target_h - two_five:
+                        # bump it back so at least 25% of the object is visible on background
+                        y_min = int(target_h - two_five)
+
+                    if y_min < 0:
+                        y_min = 1
 
                     logging.debug("Top left corner of render = {}, {}".format(x_min, y_min))
+
 
                     # Merge the background and rendered image
                     final_img = overlay_transparent(bckgrnd, new_img, x_min, y_min)
@@ -539,7 +608,8 @@ def create_spiral_shift_images(c_name):
                     new_box = [x_min, y_min, x_max, y_max]
 
                     # write the final .JPG to disk
-                    diskname = c_name + "_" + a + "_ss_" + str(spiral_iteration)
+                    file_index += 1
+                    diskname = c_name + '_' + str(file_index) + "_ss"
                     cv2.imwrite("./tmp/images/" + c_name + "/" + ax + "/ss/" + diskname + ".jpg", final_img)
 
                     # write the VOC File
@@ -547,6 +617,8 @@ def create_spiral_shift_images(c_name):
                     write_voc(voc_file, target_h, target_w, 3, new_box, c_name)
 
                     spiral_iteration += 1
+                    if spiral_iteration == spiral_trajectory_points:
+                        spiral_iteration = 0        # Reset overlay anchor to go through the spiral again.
 
     except Exception as err:
         logging.error("def create_spiral_shift_images:: {}".format(err))
@@ -623,9 +695,10 @@ def orchestrate(three_d_obj, c_name):
         create_spiral_shift_images(c_name)
         #create_augmented_images()
 
-
         # Split the dataset into train/validation
-        split(c_name)
+        split(c_name, 'x')
+        split(c_name, 'y')
+        split(c_name, 'z')
     except Exception as err:
         logging.error("def orchestrate:: {}".format(err))
 
