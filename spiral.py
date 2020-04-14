@@ -1,24 +1,23 @@
 
-import math
-from mathutils import *
-import bpy
-import random
 import cv2
-import sys
+import numpy as np
+from numpy import linspace
+from math import sin, cos
 import os
+import math
 import boto3
-import shutil
+import random
 import logging
 import time
-import datetime
+import shutil
+import bpy
 
 logging.basicConfig(filename='runtime.log', level=logging.INFO)
 C = bpy.context                         # Abbreviate the bpy.context namespace as it is used frequently
-s3_bucket = ''                          # Bucket where .obj files can be found for processing
 
 # TODO - add the below variables to argparse
 rotation_theta = 1      # amount (in degrees) to rotate the object - on each axis - for each render
-upper_bound = 20       # 360 degrees of total rotation
+upper_bound = 360       # 360 degrees of total rotation
 scale_factor = 3
 target_h = 700
 target_w = 700
@@ -38,6 +37,11 @@ def create_workspace():
         os.mkdir('./tmp/backgrounds/')
         os.mkdir('./tmp/annotations')
         os.mkdir('./tmp/images/')
+
+        # TODO remove this prior to production
+        shutil.copy('./hammertime/mallet.obj', './tmp/mallet.obj')
+        shutil.copy('./hammertime/mallet.mtl', './tmp/mallet.mtl')
+        shutil.copy('./hammertime/Poplar-2.jpg', './tmp/Poplar-2.jpg')
     except Exception as err:
         logging.error(err)
 
@@ -51,39 +55,19 @@ def create_workspace_classes(classes):
             os.mkdir('./tmp/images/' + c + '/x/renders')
             os.mkdir('./tmp/images/' + c + '/x/base')               # Base image as it was rendered and merged with bck
             os.mkdir('./tmp/images/' + c + '/x/ss')                 # Scaled and shifted base image merged with bck
-            os.mkdir('./tmp/images/' + c + '/x/augmented')          # Base images augmented and merged with bck
 
             os.mkdir('./tmp/images/' + c + '/y')
             os.mkdir('./tmp/images/' + c + '/y/renders')
             os.mkdir('./tmp/images/' + c + '/y/base')
             os.mkdir('./tmp/images/' + c + '/y/ss')
-            os.mkdir('./tmp/images/' + c + '/y/augmented')
 
             os.mkdir('./tmp/images/' + c + '/z')
             os.mkdir('./tmp/images/' + c + '/z/renders')
             os.mkdir('./tmp/images/' + c + '/z/base')
             os.mkdir('./tmp/images/' + c + '/z/ss')
-            os.mkdir('./tmp/images/' + c + '/z/augmented')
 
     except Exception as err:
         logging.error("def create_workspace_classes:: {}".format(err))
-
-
-# Get the .obj files from a specified s3 bucket
-def get_s3_contents():
-    global s3_bucket
-    s3 = boto3.resource("s3")
-    try:
-        target_bucket = s3.Bucket(s3_bucket)
-        logging.info("Checking for objects in: {}".format(target_bucket))
-
-        for s3_obj in target_bucket.objects.all():
-            path, filename = os.path.split(s3_obj.key)
-            if not "/" in s3_obj.key:  # Don't download subfolder contents
-                logging.info("Downloading: {}".format(s3_obj.key))
-                target_bucket.download_file(s3_obj.key, './tmp/' + filename)
-    except Exception as err:
-        logging.error("def get_s3_contents:: {}".format(str(err)))
 
 
 # Helper function for camera_view_bounds_2d
@@ -247,20 +231,6 @@ def orchestrate(three_d_obj, c_name):
 
         # TODO - Determine which type of models need to be joined and which do not so we don't break this
 
-        # flood the scene with lights
-        # Directly below
-        bpy.ops.object.light_add(type='SUN', location=(0, 0, -3.5))
-        # Directly above
-        bpy.ops.object.light_add(type='SUN', location=(0, 0, 3.5))
-        # To the left
-        bpy.ops.object.light_add(type='SUN', location=(0, -5, 0))
-        # To the right
-        bpy.ops.object.light_add(type='SUN', location=(0, 5, 3.5))
-        # behind
-        bpy.ops.object.light_add(type='SUN', location=(-5, 0, 0))
-        # In front
-        bpy.ops.object.light_add(type='SUN', location=(5, 0, 0))
-
         if len(C.scene.objects) > 3:
             # Join the objects together and set the master object to be the active object
             for ob in C.scene.objects:
@@ -279,16 +249,29 @@ def orchestrate(three_d_obj, c_name):
                     C.view_layer.objects.active = ob
                     bpy.ops.paint.texture_paint_toggle()
 
+        # flood the scene with lights
+        # Directly below
+        bpy.ops.object.light_add(type='SUN', location=(0, 0, -3.5))
+        # Directly above
+        bpy.ops.object.light_add(type='SUN', location=(0, 0, 3.5))
+        # To the left
+        bpy.ops.object.light_add(type='SUN', location=(0, -5, 0))
+        # To the right
+        bpy.ops.object.light_add(type='SUN', location=(0, 5, 3.5))
+        # behind
+        bpy.ops.object.light_add(type='SUN', location=(-5, 0, 0))
+        # In front
+        bpy.ops.object.light_add(type='SUN', location=(5, 0, 0))
+
         #  Set the image background to be transparent
         C.scene.render.film_transparent = True
 
         #  scale object
-        #s = 2/max(C.active_object.dimensions)
         s = right_size(C.active_object.dimensions)
 
         C.active_object.scale = (s, s, s)
 
-        #  rotate and render
+        #  rotate
         obj = C.active_object
         obj.rotation_mode = 'XYZ'
         start_angle = 0
@@ -315,16 +298,12 @@ def orchestrate(three_d_obj, c_name):
         logging.error("def orchestrate:: {}".format(err))
 
 
-# Download relevant .obj files from s3 and call the orchestrator
 def main():
     classes = []
     try:
         start = time.time()
 
         create_workspace()
-
-        # Download contents of s3 bucket (objects only, not subfolders)
-        get_s3_contents()
 
         if not os.listdir('./tmp'):
             logging.error("Nothing downloaded from s3 - nothing to do!")
@@ -354,14 +333,8 @@ def main():
 
 if __name__ == '__main__':
     logging.info("******************************")
-    logging.info("New ODIN rendering session started at {}".format(datetime.datetime.now()))
+    logging.info("New ODIN session started")
     logging.info("******************************")
 
-    argv = sys.argv
-    argv = argv[argv.index("--")+1:] # Get all the args after "--"
-    print(argv)
-    theta = int(sys.argv[-1])
-    logging.info("theta set to {}".format(theta))
-    s3_bucket = sys.argv[-2]
-    logging.info("s3_bucket = {}".format(s3_bucket))
+
     main()
