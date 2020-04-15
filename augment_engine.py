@@ -61,12 +61,14 @@ job_id = job_id.replace(".", "-")
 job_id = job_id.replace(" ", "")
 
 
+# pre-download all background images from s3
 def download_backgrounds():
     s3 = boto3.client('s3')
     list = s3.list_objects(Bucket=s3_background_bucket)['Contents']
     for key in list:
-        with open("./tmp/backgrounds/" + key['Key'], 'wb') as f:
-            s3.download_fileobj(s3_background_bucket, key['Key'], f)
+        if key['Key'] != '.directory':
+            with open("./tmp/backgrounds/" + key['Key'], 'wb') as f:
+                s3.download_fileobj(s3_background_bucket, key['Key'], f)
 
 
 # Function to iterate each class and axis, move 70% to VOCTrain and 30% to VOCValid
@@ -228,9 +230,7 @@ def get_background():
 
         # Gen random number
         key = random.randrange(0, m_length+1)
-
         img = cv2.imread("./tmp/backgrounds/" + m_index[key])
-        time.sleep(.1)
 
         return img
 
