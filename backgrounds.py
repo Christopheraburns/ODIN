@@ -6,7 +6,7 @@ import shutil
 import io
 from PIL import Image
 import numpy as np
-
+import random
 
 
 # On start - download all backgrounds from S3
@@ -27,8 +27,10 @@ class Generator:
         else:
             # create background folder
             os.mkdir('./tmp/backgrounds')
+
         s3 = boto3.client('s3')
         list = s3.list_objects(Bucket=bucket)['Contents']
+        # TODO - this only grabs the first 1000 entries.  Need to put an iterator in here.
         index = 1
         for key in list:
             if key['Key'] != '.directory':
@@ -56,8 +58,9 @@ class Generator:
         return len(self.catalog)
 
 # Debug
-#generator = Generator('odin-bck', 700, 700)
-#print(generator.get_count())
-#image = cv2.cvtColor(generator.get_background(0), cv2.COLOR_RGB2BGR)
-#cv2.imshow('bck', image)
-#cv2.waitKey()
+generator = Generator('odin-bck', 700, 700)
+
+index = random.randrange(0, generator.get_count())
+image = cv2.cvtColor(generator.get_background(index), cv2.COLOR_RGB2BGR)
+cv2.imshow(index, image)
+cv2.waitKey()

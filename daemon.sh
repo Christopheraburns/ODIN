@@ -8,4 +8,4 @@ blender -b -noaudio -E CYCLES --python euler_engine.py -- handtools 1
 
 echo "Blender is finished rendering, begin augmentation process..."
 
-python3 augment_engine.py
+#python3 augment_engine.py

@@ -18,8 +18,7 @@ s3_bucket = ''                          # Bucket where .obj files can be found f
 
 # TODO - add the below variables to argparse
 rotation_theta = 1      # amount (in degrees) to rotate the object - on each axis - for each render
-upper_bound = 20       # 360 degrees of total rotation
-scale_factor = 3
+upper_bound = 360    # 360 degrees of total rotation
 target_h = 700
 target_w = 700
 train_set_percent = .7
@@ -187,7 +186,7 @@ def right_size(vector):
 # Render function will download a random background from S3
 # merge the newly rendered image with the random background and write to disk
 # create and write an accompanying VOC file for the newly rendered image
-def render(obj, angle, axis, index, axis_index, c_name):
+def render(obj, angle, axis, axis_index, c_name):
     try:
         cam = bpy.data.objects['Camera']
 
@@ -195,7 +194,7 @@ def render(obj, angle, axis, index, axis_index, c_name):
             obj.rotation_euler = (0, 0, angle)
         elif axis == "y":
             obj.rotation_euler = (0, angle, 0)
-        else:
+        else: # x axis
             obj.rotation_euler = (angle, 0, 0)
 
         # Get the 2D bounding box for the image
@@ -208,8 +207,8 @@ def render(obj, angle, axis, index, axis_index, c_name):
         # Render the 3D object as an image
         bpy.context.scene.render.filepath = render_name
 
-        logging.debug("rendering pose # {} on {} axis".format(index, axis))
-        # TODO EXPLORE WRITING TO A NUMPY ARRAY RATHER THAN DISK FOR BETTER PERFORMANCE
+        logging.debug("rendering pose # {} on {} axis".format(axis_index, axis))
+
         bpy.ops.render.render(write_still=True, use_viewport=True)
 
         # Rendering sends the entire scene to an image file. Crop it down to our bounding boxes
@@ -225,7 +224,15 @@ def render(obj, angle, axis, index, axis_index, c_name):
             # Remove the original render from disk
             os.remove(render_name)
             # Write the newly cropped render to disk
-            cv2.imwrite(render_name, cropped)
+            # pad axis_index to 3 places
+            str_index = str(axis_index)
+
+            if len(str_index) == 1:
+                str_index = "00" + str_index
+            elif len(str_index) == 2:
+                str_index = "0" + str_index
+            final_name = "./tmp/images/" + c_name + "/" + axis + "/renders/" + str_index + ".png"
+            cv2.imwrite(final_name, cropped)
     except Exception as err:
         logging.error("def render:: {}".format(err))
 
@@ -237,8 +244,6 @@ def render(obj, angle, axis, index, axis_index, c_name):
 def orchestrate(three_d_obj, c_name):
     global rotation_theta
     try:
-        image_index = 0
-
         # clear default scene
         bpy.ops.object.delete() # should delete cube
 
@@ -277,7 +282,7 @@ def orchestrate(three_d_obj, c_name):
                 if ob.type == "MESH":
                     ob.select_set(True)
                     C.view_layer.objects.active = ob
-                    bpy.ops.paint.texture_paint_toggle()
+                    #bpy.ops.paint.texture_paint_toggle()
 
         #  Set the image background to be transparent
         C.scene.render.film_transparent = True
@@ -293,23 +298,23 @@ def orchestrate(three_d_obj, c_name):
         obj.rotation_mode = 'XYZ'
         start_angle = 0
 
+        # TODO https://blender.stackexchange.com/questions/882/how-to-find-image-coordinates-of-the-rendered-vertex
+        # Need to verify all vertices of the object are in the viewport
+
         # Rotate on the Zed axis
         for z in range(1, upper_bound):
             angle = (start_angle * (math.pi/180)) + (z*-1) * (rotation_theta * (math.pi/180))
-            render(obj, angle, "z", image_index, z, c_name)
-            image_index += 1
+            render(obj, angle, "z", z, c_name)
 
         # Rotate on the X axis
         for x in range(1, upper_bound):
             angle = (start_angle * (math.pi/180)) + (x*-1) * (rotation_theta * (math.pi/180))
-            render(obj, angle, "x", image_index, x, c_name)
-            image_index += 1
+            render(obj, angle, "x", x, c_name)
 
         # Rotate on the Y axis
         for y in range(1, upper_bound):
             angle = (start_angle * (math.pi/180)) + (y*-1) * (rotation_theta * (math.pi/180))
-            render(obj, angle, "y", image_index, y, c_name)
-            image_index += 1
+            render(obj, angle, "y", y, c_name)
 
     except Exception as err:
         logging.error("def orchestrate:: {}".format(err))

@@ -60,12 +60,6 @@ job_id = job_id.replace(" ", "")
 def create_backgrounds():
     global background_generator
     global m_length
-    # s3 = boto3.client('s3')
-    # list = s3.list_objects(Bucket=s3_background_bucket)['Contents']
-    # for key in list:
-    #     if key['Key'] != '.directory':
-    #         with open("./tmp/backgrounds/" + key['Key'], 'wb') as f:
-    #             s3.download_fileobj(s3_background_bucket, key['Key'], f)
     background_generator = backgrounds.Generator(s3_background_bucket, target_h, target_w)
     m_length = background_generator.get_count()
 
@@ -226,37 +220,28 @@ def create_spiral_shift_images(c_name):
         axis = ['x', 'y', 'z']
         for ax in axis:  # Iterate axis folder
             logging.info("iterating {} axis".format(ax))
+            file_index = 1
             for root, dir, files in os.walk("./tmp/images/" + c_name + "/" + ax + "/renders"):  # Iterate each image
                 for filename in files:  # Should be 359
-                    #print("\tprocessing file {}".format(filename))
-                    # Pull data out of the filename
-                    data, ext = os.path.splitext(filename)
-
-                    elements = data.split("-")
-                    a = elements[0]
-                    # bounding_box = [elements[1], elements[2], elements[3], elements[4]]
 
                     # Read the rendered image from disk
                     rendered_img = cv2.imread("./tmp/images/" + c_name + "/" + ax + "/renders/" + filename,
                                               cv2.IMREAD_UNCHANGED)
 
-                    # Here we will now change the size and create images along the spiral trajectory for each size
+                    # we will now change the size of the base render and create images along the spiral trajectory for each size
                     # Sizes:
                     # x-small   small   medium  large   x-large
                     # 15%       30%     50%     70%     80%         # Percent of background H & W
 
-                    # logging.info("Generating t-shirt sizes...")
-                    # print("Generating t-shirt sizes...")
-                    xsmall = int(target_w * .15)
-                    small = int(target_w * .30)
-                    medium = int(target_w * .50)
-                    large = int(target_w * .70)
-                    xlarge = int(target_w * .80)
-                    sizes = [xsmall, small, medium, large, xlarge]
+                    xsmall = int(target_w * .15)                    # 15% of normal
+                    small = int(target_w * .30)                     # 30% of normal
+                    medium = int(target_w * .50)                    # 50% of normal
+                    large = int(target_w * .70)                     # 70% of normal
+                    #xlarge = int(target_w * .80)                    # 80% of normal
+                    sizes = [xsmall, small, medium, large]
 
                     for size in sizes:
-                        #print("\t\tgenerating images at {} size".format(size))
-                        # resize image by largest dimension
+                        # determine the largest dimension so we can resize image by largest dimension
                         if rendered_img.shape[1] >= rendered_img.shape[0]:
                             scale = size / rendered_img.shape[1]
                             dim = (size, int(rendered_img.shape[0] * scale))
@@ -270,9 +255,9 @@ def create_spiral_shift_images(c_name):
                         overlay_h = resized_img.shape[0]
 
                         # size the image accordingly and then sent it on spiral trajectory
-                        for p in range(spiral_trajectory_points):
-                            # Plot an image every 15 trajectory points
-                            if p % 15 == 0:
+                        for p in range(spiral_trajectory_points + 1):
+                            # Plot an image every 30 trajectory points - should be 3 images of each size, each orientation
+                            if p % 30 == 0:
                                 # get a random background image from background catalog
                                 key = random.randrange(0, m_length)
                                 bckgrnd = cv2.cvtColor(background_generator.get_background(key), cv2.COLOR_RGB2BGR)
@@ -347,27 +332,21 @@ def create_spiral_shift_images(c_name):
 
                                 new_box = [x_min, y_min, x_max, y_max]
 
-                                # write the final .JPG to disk
+                                str_index = str(file_index)
+                                if len(str_index) == 1:
+                                    str_index = "00" + str_index
+                                elif len(str_index) == 2:
+                                    str_index = "0" + str_index
 
-                                if size == xsmall:
-                                    diskname = c_name + '_' + a + '_' + 'xsmall_' + str(p) + "_ss"
-                                if size == small:
-                                    diskname = c_name + '_' + a + 'small_' + str(p) + "_ss"
-                                if size == medium:
-                                    diskname = c_name + '_' + a + 'medium_' + str(p) + "_ss"
-                                if size == large:
-                                    diskname = c_name + '_' + a + 'large_' + str(p) + "_ss"
-                                if size == xlarge:
-                                    diskname = c_name + '_' + a + 'xlarge_' + str(p) + "_ss"
-                                #print("\t\t\tWriting image to disk")
+                                # write the final .JPG to disk
+                                diskname = str_index + "_" + c_name + '_' + ax + "_ss"
                                 cv2.imwrite("./tmp/images/" + c_name + "/" + ax + "/ss/" + diskname + ".jpg", final_img)
 
-                                time.sleep(.1)
                                 # write the VOC File
-                                #print("\t\t\tWriting VOC file")
                                 voc_file = diskname + ".xml"
                                 write_voc(voc_file, target_h, target_w, 3, new_box, c_name)
-                                time.sleep(.1)
+
+                                file_index+=1
 
     except Exception as err:
         logging.error("def create_spiral_shift_images:: {}".format(err))
@@ -381,20 +360,15 @@ def create_base_images(c_name):
         # Bounding_box[3] = max_y (height)
         axis = ['x', 'y', 'z']
         for ax in axis:
+            file_index = 1
             for root, dir, files in os.walk("./tmp/images/" + c_name + "/" + ax + "/renders"):
                 for filename in files:
-                    # Pull data out of the filename
-                    data, ext = os.path.splitext(filename)
-
-                    elements = data.split("-")
-                    a = elements[0]
-                    #bounding_box = [elements[1], elements[2], elements[3], elements[4]]
 
                     # Read the rendered image from disk
                     new_img = cv2.imread("./tmp/images/" + c_name + "/" + ax + "/renders/" + filename,
                                          cv2.IMREAD_UNCHANGED)
 
-                    # Images are rendered larger than the background image of 700x700 for detail
+                    # Images are rendered larger than the background image of 700x700 to preserve detail
                     # resize the new_img to 350 max height or width as the baseline
                     if new_img.shape[1] >= new_img.shape[0]:
                         scale = 350 / new_img.shape[1]
@@ -436,9 +410,16 @@ def create_base_images(c_name):
                     # x_min, y_min is now the top left corner of the bounding box
                     new_box = [x_min, y_min, int(x_min + new_img.shape[1]), int(y_min + new_img.shape[0])]
 
+
+                    str_index = str(file_index)
+                    if len(str_index) == 1:
+                        str_index = "00" + str_index
+                    elif len(str_index) == 2:
+                        str_index = "0" + str_index
+
                     try:
                         # write the final .JPG to disk
-                        diskname = c_name + "_" + a + "_base"
+                        diskname = str_index + "_" + c_name + "_" + ax + "_base"
                         cv2.imwrite("./tmp/images/" + c_name + "/" + ax + "/base/" + diskname + ".jpg", final_img)
 
                         # write the VOC File
@@ -447,8 +428,7 @@ def create_base_images(c_name):
 
                     except Exception as err:
                         logging.error("def create_base_image::{}".format(err))
-
-                time.sleep(.1)
+                    file_index += 1
 
 
 def create_voc_directory():
