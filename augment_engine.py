@@ -65,8 +65,8 @@ def download_backgrounds():
     s3 = boto3.client('s3')
     list = s3.list_objects(Bucket=s3_background_bucket)['Contents']
     for key in list:
-        with open("./tmp/backgrounds/" + key, 'wb') as f:
-            s3.download_fileobj(s3_background_bucket, key, f)
+        with open("./tmp/backgrounds/" + key['Key'], 'wb') as f:
+            s3.download_fileobj(s3_background_bucket, key['Key'], f)
 
 
 # Function to iterate each class and axis, move 70% to VOCTrain and 30% to VOCValid
