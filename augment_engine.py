@@ -239,8 +239,9 @@ def create_spiral_shift_images(c_name):
                     large = int(target_w * .70)                     # 70% of normal
                     #xlarge = int(target_w * .80)                    # 80% of normal
                     sizes = [xsmall, small, medium, large]
-
+                    size_index = 1
                     for size in sizes:
+
                         # determine the largest dimension so we can resize image by largest dimension
                         if rendered_img.shape[1] >= rendered_img.shape[0]:
                             scale = size / rendered_img.shape[1]
@@ -254,8 +255,10 @@ def create_spiral_shift_images(c_name):
                         overlay_w = resized_img.shape[1]
                         overlay_h = resized_img.shape[0]
 
+                        spiral_index = 1
                         # size the image accordingly and then sent it on spiral trajectory
                         for p in range(spiral_trajectory_points + 1):
+
                             # Plot an image every 30 trajectory points - should be 3 images of each size, each orientation
                             if p % 30 == 0:
                                 # get a random background image from background catalog
@@ -338,15 +341,21 @@ def create_spiral_shift_images(c_name):
                                 elif len(str_index) == 2:
                                     str_index = "0" + str_index
 
+
+
                                 # write the final .JPG to disk
-                                diskname = str_index + "_" + c_name + '_' + ax + "_ss"
+                                diskname = str_index + "-" + str(size_index) + "-" + spiral_index + "_" + c_name + '_' + ax + "_ss"
                                 cv2.imwrite("./tmp/images/" + c_name + "/" + ax + "/ss/" + diskname + ".jpg", final_img)
 
                                 # write the VOC File
                                 voc_file = diskname + ".xml"
                                 write_voc(voc_file, target_h, target_w, 3, new_box, c_name)
 
-                                file_index+=1
+                                spiral_index += 1
+
+                    size_index +=1
+
+                file_index += 1
 
     except Exception as err:
         logging.error("def create_spiral_shift_images:: {}".format(err))
