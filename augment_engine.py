@@ -21,8 +21,7 @@ logging.basicConfig(filename='runtime.log', level=logging.INFO)
 
 s3_background_bucket = 'odin-bck'
 background_generator = None
-
-m_length = 5639  # Num of entries in background (minus 1 for zero based)
+m_length = 0  # Num of entries in background (minus 1 for zero based)
 
 
 # S3 Folder structure
@@ -60,6 +59,7 @@ job_id = job_id.replace(" ", "")
 # pre-download all background images from s3
 def create_backgrounds():
     global background_generator
+    global m_length
     # s3 = boto3.client('s3')
     # list = s3.list_objects(Bucket=s3_background_bucket)['Contents']
     # for key in list:
@@ -67,7 +67,7 @@ def create_backgrounds():
     #         with open("./tmp/backgrounds/" + key['Key'], 'wb') as f:
     #             s3.download_fileobj(s3_background_bucket, key['Key'], f)
     background_generator = backgrounds.Generator(s3_background_bucket, target_h, target_w)
-
+    m_length = background_generator.get_count()
 
 # Function to iterate each class and axis, move 70% to VOCTrain and 30% to VOCValid
 def split(c_name, axis):

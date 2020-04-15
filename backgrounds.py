@@ -46,14 +46,20 @@ class Generator:
                     index += 1
                 except Exception as err:
                     # TODO - NEED to log this error somewhere
+                    print("unable to add {}.  Error = {}".format(key['Key'], err))
                     pass # Skip this troublemaker
+            if index == 20:
+                break
 
     def get_background(self, index):
         return self.catalog[index]
 
+    def get_count(self):
+        return len(self.catalog)
 
 # Debug
-#generator = Generator(s3_background_bucket)
+#generator = Generator('odin-bck', 700, 700)
+#print(generator.get_count())
 #image = cv2.cvtColor(generator.get_background(0), cv2.COLOR_RGB2BGR)
 #cv2.imshow('bck', image)
 #cv2.waitKey()
