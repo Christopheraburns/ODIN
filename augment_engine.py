@@ -341,8 +341,6 @@ def create_spiral_shift_images(c_name):
                                 elif len(str_index) == 2:
                                     str_index = "0" + str_index
 
-
-
                                 # write the final .JPG to disk
                                 diskname = str_index + "-" + str(size_index) + "-" + spiral_index + "_" + c_name + '_' + ax + "_ss"
                                 cv2.imwrite("./tmp/images/" + c_name + "/" + ax + "/ss/" + diskname + ".jpg", final_img)
