@@ -20,6 +20,15 @@ logging.basicConfig(filename='runtime.log', level=logging.INFO)
 
 s3_background_bucket = 'odin-bck'
 
+m_file = 'manifest.txt'
+m_length = 5640  # Num of entries in Manifest file - update this if file is altered
+m_index = {}
+
+# Load manifest file to select random background based on key
+with open(m_file) as f:
+    for i, l in enumerate(f):
+        m_index[i] = l.strip()
+
 # S3 Folder structure
 #s3_output = s3_bucket + '/output/' + job_id + '/VOC'
 #s3_train_image_output = s3_output + "/VOCTrain/JPEGImages/"
@@ -50,6 +59,14 @@ job_id = str(datetime.datetime.now())   # Unique ID + run date/time for this job
 job_id = job_id.replace(":", "-")
 job_id = job_id.replace(".", "-")
 job_id = job_id.replace(" ", "")
+
+
+def download_backgrounds():
+    s3 = boto3.client('s3')
+    list = s3.list_objects(Bucket=s3_background_bucket)['Contents']
+    for key in list:
+        with open("./tmp/backgrounds/" + key, 'wb') as f:
+            s3.download_fileobj(s3_background_bucket, key, f)
 
 
 # Function to iterate each class and axis, move 70% to VOCTrain and 30% to VOCValid
@@ -204,33 +221,16 @@ def overlay_transparent(background, render, anchor_x, anchor_y):
 
 # Get a random background from a Lambda function
 def get_background():
+    global m_length
+    global m_index
 
-    m_file = 'manifest.txt'
-    m_length = 5640  # Num of entries in Manifest file - update this if file is altered
-    m_index = {}
-    s3 = boto3.client("s3")
     try:
-
-        # Load manifest file to select random background based on key
-        with open(m_file) as f:
-            for i, l in enumerate(f):
-                m_index[i] = l.strip()
 
         # Gen random number
         key = random.randrange(0, m_length+1)
 
-        # Check if background has already been downloaded:
-        if not os.path.exists('./tmp/backgrounds/' + m_index[key]):
-            # Download corresponding object from S3
-            with open("./tmp/backgrounds/" + m_index[key], 'wb') as f:
-                s3.download_fileobj(s3_background_bucket, m_index[key], f)
-        # else:
-        #     # Make second attempt at getting a background not yet used
-        #     key = random.randrange(0, m_length + 1)
-        #     with open("./tmp/backgrounds/" + m_index[key], 'wb') as f:
-        #         s3.download_fileobj(s3_background_bucket, m_index[key], f)
-
         img = cv2.imread("./tmp/backgrounds/" + m_index[key])
+        time.sleep(.1)
 
         return img
 
@@ -294,6 +294,9 @@ def create_spiral_shift_images(c_name):
                                 #print("\t\t\tPlotting image on spiral trajectory")
                                 # get a random background image from S3
                                 bckgrnd = get_background()
+                                if not bckgrnd:
+                                    bckgrnd = get_background()
+
                                 bckgrnd = cv2.resize(bckgrnd, (target_h, target_w))
 
                                 # Get the center point of the background image
@@ -381,10 +384,12 @@ def create_spiral_shift_images(c_name):
                                 #print("\t\t\tWriting image to disk")
                                 cv2.imwrite("./tmp/images/" + c_name + "/" + ax + "/ss/" + diskname + ".jpg", final_img)
 
+                                time.sleep(.1)
                                 # write the VOC File
                                 #print("\t\t\tWriting VOC file")
                                 voc_file = diskname + ".xml"
                                 write_voc(voc_file, target_h, target_w, 3, new_box, c_name)
+                                time.sleep(.1)
 
     except Exception as err:
         logging.error("def create_spiral_shift_images:: {}".format(err))
@@ -486,6 +491,7 @@ def create_voc_directory():
 
 def main():
     create_voc_directory()
+    download_backgrounds()
     classes = []
 
     for root, dirs, files in os.walk('./tmp'):
