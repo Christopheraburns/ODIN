@@ -58,9 +58,9 @@ class Generator:
         return len(self.catalog)
 
 # Debug
-generator = Generator('odin-bck', 700, 700)
+#generator = Generator('odin-bck', 700, 700)
 
-index = random.randrange(0, generator.get_count())
-image = cv2.cvtColor(generator.get_background(index), cv2.COLOR_RGB2BGR)
-cv2.imshow(index, image)
-cv2.waitKey()
+#index = random.randrange(0, generator.get_count())
+#image = cv2.cvtColor(generator.get_background(index), cv2.COLOR_RGB2BGR)
+#cv2.imshow(index, image)
+#cv2.waitKey()
