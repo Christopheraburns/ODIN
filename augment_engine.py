@@ -15,19 +15,15 @@ import logging
 import time
 import shutil
 import datetime
+import backgrounds
 
 logging.basicConfig(filename='runtime.log', level=logging.INFO)
 
 s3_background_bucket = 'odin-bck'
+background_generator = None
 
-m_file = 'manifest.txt'
-m_length = 5640  # Num of entries in Manifest file - update this if file is altered
-m_index = {}
+m_length = 5639  # Num of entries in background (minus 1 for zero based)
 
-# Load manifest file to select random background based on key
-with open(m_file) as f:
-    for i, l in enumerate(f):
-        m_index[i] = l.strip()
 
 # S3 Folder structure
 #s3_output = s3_bucket + '/output/' + job_id + '/VOC'
@@ -62,13 +58,15 @@ job_id = job_id.replace(" ", "")
 
 
 # pre-download all background images from s3
-def download_backgrounds():
-    s3 = boto3.client('s3')
-    list = s3.list_objects(Bucket=s3_background_bucket)['Contents']
-    for key in list:
-        if key['Key'] != '.directory':
-            with open("./tmp/backgrounds/" + key['Key'], 'wb') as f:
-                s3.download_fileobj(s3_background_bucket, key['Key'], f)
+def create_backgrounds():
+    global background_generator
+    # s3 = boto3.client('s3')
+    # list = s3.list_objects(Bucket=s3_background_bucket)['Contents']
+    # for key in list:
+    #     if key['Key'] != '.directory':
+    #         with open("./tmp/backgrounds/" + key['Key'], 'wb') as f:
+    #             s3.download_fileobj(s3_background_bucket, key['Key'], f)
+    background_generator = backgrounds.Generator(s3_background_bucket, target_h, target_w)
 
 
 # Function to iterate each class and axis, move 70% to VOCTrain and 30% to VOCValid
@@ -221,25 +219,9 @@ def overlay_transparent(background, render, anchor_x, anchor_y):
         logging.error("def overlay_transparent::" + str(msg))
 
 
-# Get a random background from a Lambda function
-def get_background():
-    global m_length
-    global m_index
-
-    try:
-
-        # Gen random number
-        key = random.randrange(0, m_length+1)
-        img = cv2.imread("./tmp/backgrounds/" + m_index[key])
-
-        return img
-
-    except Exception as err:
-        logging.error("def get_background::" + str(err))
-
-
 # function to create images with the object off-centered in a spiral pattern on the background
 def create_spiral_shift_images(c_name):
+    global background_generator
     try:
         axis = ['x', 'y', 'z']
         for ax in axis:  # Iterate axis folder
@@ -291,13 +273,9 @@ def create_spiral_shift_images(c_name):
                         for p in range(spiral_trajectory_points):
                             # Plot an image every 15 trajectory points
                             if p % 15 == 0:
-                                #print("\t\t\tPlotting image on spiral trajectory")
-                                # get a random background image from S3
-                                bckgrnd = get_background()
-                                if not bckgrnd:
-                                    bckgrnd = get_background()
-
-                                bckgrnd = cv2.resize(bckgrnd, (target_h, target_w))
+                                # get a random background image from background catalog
+                                key = random.randrange(0, m_length)
+                                bckgrnd = cv2.cvtColor(background_generator.get_background(key), cv2.COLOR_RGB2BGR)
 
                                 # Get the center point of the background image
                                 center_x = target_w / 2
@@ -427,9 +405,9 @@ def create_base_images(c_name):
                         dim = (350, int(new_img.shape[1] * scale))
                         new_img = cv2.resize(new_img, dim, interpolation=cv2.INTER_AREA)
 
-                    # get a random background image from S3 or local cache
-                    bckgrnd = get_background()
-                    bckgrnd = cv2.resize(bckgrnd, (target_h, target_w))
+                    # get a random background image from background catalog
+                    key = random.randrange(0, m_length)
+                    bckgrnd = cv2.cvtColor(background_generator.get_background(key), cv2.COLOR_RGB2BGR)
 
                     # ########
                     # Merge the cropped image with a random background
@@ -491,7 +469,7 @@ def create_voc_directory():
 
 def main():
     create_voc_directory()
-    download_backgrounds()
+    create_backgrounds()
     classes = []
 
     for root, dirs, files in os.walk('./tmp'):
