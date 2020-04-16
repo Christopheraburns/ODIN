@@ -1,3 +1,9 @@
+# The euler_engine leverages Blender 2.8x to load .obj (+.mtl) files from S3.  Right size the objects and then render
+# a transparent .png file on each degree of rotation on each axis (X * 359 + Y * 359 + Z * 359)
+# !!!! NOTE !!!! This module must be run within the Blender python environment.
+# !!!! NOTE !!!! Within the python blender environment, you cannot call functions or classes in other python modules
+#                unless they are install via PIP
+# burnsca@
 
 import math
 from mathutils import *
@@ -21,7 +27,6 @@ rotation_theta = 1      # amount (in degrees) to rotate the object - on each axi
 upper_bound = 360    # 360 degrees of total rotation
 target_h = 700
 target_w = 700
-train_set_percent = .7
 
 
 # Function to clear old workspace if exists and create fresh folder structure
@@ -41,31 +46,22 @@ def create_workspace():
         logging.error(err)
 
 
-def create_workspace_classes(classes):
-
+# Create the file structure for class images
+def create_classes_workspace(classes):
+    path = './tmp/images'
+    axis = ['x', 'y', 'z']
+    subs = ['renders', 'base', 'ss']
     try:
+        if not os.path.exists(path):
+            os.mkdir(path)
         for c in classes:
-            os.mkdir('./tmp/images/' + c)
-            os.mkdir('./tmp/images/' + c + '/x')
-            os.mkdir('./tmp/images/' + c + '/x/renders')
-            os.mkdir('./tmp/images/' + c + '/x/base')               # Base image as it was rendered and merged with bck
-            os.mkdir('./tmp/images/' + c + '/x/ss')                 # Scaled and shifted base image merged with bck
-            os.mkdir('./tmp/images/' + c + '/x/augmented')          # Base images augmented and merged with bck
-
-            os.mkdir('./tmp/images/' + c + '/y')
-            os.mkdir('./tmp/images/' + c + '/y/renders')
-            os.mkdir('./tmp/images/' + c + '/y/base')
-            os.mkdir('./tmp/images/' + c + '/y/ss')
-            os.mkdir('./tmp/images/' + c + '/y/augmented')
-
-            os.mkdir('./tmp/images/' + c + '/z')
-            os.mkdir('./tmp/images/' + c + '/z/renders')
-            os.mkdir('./tmp/images/' + c + '/z/base')
-            os.mkdir('./tmp/images/' + c + '/z/ss')
-            os.mkdir('./tmp/images/' + c + '/z/augmented')
-
+            os.mkdir(path + '/' + c)
+            for a in axis:
+                os.mkdir(path + '/' + c + '/' + a)
+                for s in subs:
+                    os.mkdir(path + "/" + c + "/" + a + "/" + s)
     except Exception as err:
-        logging.error("def create_workspace_classes:: {}".format(err))
+        logging.error("def create_classes_workspace:: {}".format(err))
 
 
 # Get the .obj files from a specified s3 bucket
@@ -341,7 +337,7 @@ def main():
                     if ext.lower() == '.obj':
                         classes.append(class_name)
 
-            create_workspace_classes(classes)
+            create_classes_workspace(classes)
 
             for root, dirs, files in os.walk('./tmp'):
                 # only process the .obj files for now

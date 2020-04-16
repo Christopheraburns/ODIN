@@ -1,4 +1,8 @@
-# Management for background image
+# Each instance of the euler_engine will download all background images from S3 into memory to eliminate rapid IO
+# TODO - determine if this is best way to get
+# TODO - add continuation token to get all background images
+# burnsca@
+
 import cv2
 import boto3
 import os

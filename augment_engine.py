@@ -1,5 +1,6 @@
 # augment_engine takes the images rendered by Blender and buids a dataset by resizing, moving and appending the image
 # to random backgrounds
+# burnsca@
 
 import cv2
 import numpy as np
@@ -62,6 +63,7 @@ def create_backgrounds():
     global m_length
     background_generator = backgrounds.Generator(s3_background_bucket, target_h, target_w)
     m_length = background_generator.get_count()
+
 
 # Function to iterate each class and axis, move 70% to VOCTrain and 30% to VOCValid
 def split(c_name, axis):
@@ -224,21 +226,22 @@ def create_spiral_shift_images(c_name):
             for root, dir, files in os.walk("./tmp/images/" + c_name + "/" + ax + "/renders"):  # Iterate each image
                 for filename in files:  # Should be 359
 
-                    # Read the rendered image from disk
+                    # Read the previously rendered image from disk
                     rendered_img = cv2.imread("./tmp/images/" + c_name + "/" + ax + "/renders/" + filename,
                                               cv2.IMREAD_UNCHANGED)
 
                     # we will now change the size of the base render and create images along the spiral trajectory for each size
-                    # Sizes:
-                    # x-small   small   medium  large   x-large
-                    # 15%       30%     50%     70%     80%         # Percent of background H & W
+                    # x-small   small   medium
+                    # 15%       30%     50%                   # Percent of background H & W
 
                     xsmall = int(target_w * .15)                    # 15% of normal
                     small = int(target_w * .30)                     # 30% of normal
                     medium = int(target_w * .50)                    # 50% of normal
-                    large = int(target_w * .70)                     # 70% of normal
-                    #xlarge = int(target_w * .80)                    # 80% of normal
-                    sizes = [xsmall, small, medium, large]
+
+                    sizes = [xsmall, small, medium]
+
+                    # This will result in a new image for each render at each different size (4) and at each different
+                    # point on the spiral trajectory (3). Thus 359 * 4 * 3 unique images per axis will be created
                     size_index = 1
                     for size in sizes:
 
@@ -258,9 +261,8 @@ def create_spiral_shift_images(c_name):
                         spiral_index = 1
                         # size the image accordingly and then sent it on spiral trajectory
                         for p in range(spiral_trajectory_points + 1):
-
-                            # Plot an image every 30 trajectory points - should be 3 images of each size, each orientation
-                            if p % 30 == 0:
+                            # Plot an image every 20 trajectory points - should be 4 images of each size, each orientation
+                            if p > 0 and p % 22 == 0:
                                 # get a random background image from background catalog
                                 key = random.randrange(0, m_length)
                                 bckgrnd = cv2.cvtColor(background_generator.get_background(key), cv2.COLOR_RGB2BGR)
@@ -272,7 +274,7 @@ def create_spiral_shift_images(c_name):
                                 # logging.debug("Background center point = {},{}".format(center_x, center_y))
                                 #print("Background center point = {},{}".format(center_x, center_y))
 
-                                # Get the spiral trajectory coordinates
+                                # Get the point along the spiral trajectory
                                 spiral_x = int(spiral_trajectory_x[p])  # Round by casting to int8
                                 spiral_y = int(spiral_trajectory_y[p])  # Round by casting to int8
 
@@ -351,9 +353,9 @@ def create_spiral_shift_images(c_name):
 
                                 spiral_index += 1
 
-                    size_index +=1
+                        size_index += 1
 
-                file_index += 1
+                    file_index += 1
 
     except Exception as err:
         logging.error("def create_spiral_shift_images:: {}".format(err))
@@ -438,24 +440,8 @@ def create_base_images(c_name):
                     file_index += 1
 
 
-def create_voc_directory():
-    global job_id
-
-    # Directory Structure for VOC
-    os.mkdir('./tmp/' + job_id)
-    os.mkdir('./tmp/' + job_id + '/VOCTrain')
-    os.mkdir('./tmp/' + job_id + '/VOCTrain/JPEGImages')
-    os.mkdir('./tmp/' + job_id + '/VOCTrain/Annotations')
-    os.mkdir('./tmp/' + job_id + '/VOCTrain/ImageSets')
-    os.mkdir('./tmp/' + job_id + '/VOCTrain/ImageSets/Main')
-    os.mkdir('./tmp/' + job_id + '/VOCValid')
-    os.mkdir('./tmp/' + job_id + '/VOCValid/JPEGImages')
-    os.mkdir('./tmp/' + job_id + '/VOCValid/Annotations')
-    os.mkdir('./tmp/' + job_id + '/VOCValid/ImageSets')
-    os.mkdir('./tmp/' + job_id + '/VOCValid/ImageSets/Main')
-
 def main():
-    create_voc_directory()
+
     create_backgrounds()
     classes = []
 
