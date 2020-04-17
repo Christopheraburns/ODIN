@@ -249,18 +249,40 @@ def orchestrate(three_d_obj, c_name):
         # TODO - Determine which type of models need to be joined and which do not so we don't break this
 
         # flood the scene with lights
+        # Directly behind the camera
+        #bpy.ops.object.light_add(type='SUN', location=(7.3647, -6.9795, 4.9041))
+
+        # Add a sun directly above the object
+        bpy.ops.object.light_add(type='SUN', location=(0, 0, 6))
+        bpy.context.object.data.use_shadow = False
+        bpy.context.object.data.energy = 5
+
         # Directly below
-        bpy.ops.object.light_add(type='SUN', location=(0, 0, -3.5))
-        # Directly above
-        bpy.ops.object.light_add(type='SUN', location=(0, 0, 3.5))
+        bpy.ops.object.light_add(type='SUN', location=(0, 0, -6))
+        bpy.context.object.rotation_euler[1] = 3.14159
+        bpy.context.object.data.use_shadow = False
+        bpy.context.object.data.energy = 5
+
         # To the left
-        bpy.ops.object.light_add(type='SUN', location=(0, -5, 0))
+        bpy.ops.object.light_add(type='SUN', location=(0, -6, 0))
+        bpy.context.object.rotation_euler[0] = 1.5708
+        bpy.context.object.data.use_shadow = False
+        bpy.context.object.data.energy = 5
+
         # To the right
-        bpy.ops.object.light_add(type='SUN', location=(0, 5, 3.5))
+        bpy.ops.object.light_add(type='SUN', location=(0, 6, 0))
+        bpy.context.object.data.use_shadow = False
+        bpy.context.object.rotation_euler[0] = -1.5708
+        bpy.context.object.data.energy = 5
+
         # behind
-        bpy.ops.object.light_add(type='SUN', location=(-5, 0, 0))
-        # In front
-        bpy.ops.object.light_add(type='SUN', location=(5, 0, 0))
+        bpy.ops.object.light_add(type='SUN', location=(6, 0, 0))
+        bpy.context.object.rotation_euler[1] = 1.5708
+        bpy.context.object.data.use_shadow = False
+        bpy.context.object.data.energy = 5
+
+        # # In front
+        # bpy.ops.object.light_add(type='SUN', location=(5, 0, 0))
 
         if len(C.scene.objects) > 3:
             # Join the objects together and set the master object to be the active object
