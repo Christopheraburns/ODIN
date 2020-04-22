@@ -38,46 +38,47 @@ def split(c_name, axis, subfolder):
     try:
         # Capture some paths in variables
         img_source = path + '/' + c_name + '/' + axis + '/' + subfolder + '/'
-        annot_source = './tmp/annotations/'
+        if os.path.exists(img_source):
+            annot_source = './tmp/annotations/'
 
-        voctrain_img_dest = './tmp/' + job_id + '/VOCTrain/shuffle/'
-        vocvalid_img_dest = './tmp/' + job_id + '/VOCValid/shuffle/'
+            voctrain_img_dest = './tmp/' + job_id + '/VOCTrain/shuffle/'
+            vocvalid_img_dest = './tmp/' + job_id + '/VOCValid/shuffle/'
 
-        voctrain_annot_dest = './tmp/' + job_id + '/VOCTrain/Annotations/'
-        vocvalid_annot_dest = './tmp/' + job_id + '/VOCValid/Annotations/'
-
-
-        # Create list of all images in working path
-        file_list = generate_list(img_source)
-
-        # Shuffle the list
-        random.shuffle(file_list)
-
-        # Get 70% for training
-        seventy = round(len(file_list) * .7)
-
-        # Copy the 70% VOC structure (training)
-        sev = range(0, seventy)
-        for i in sev:
-            file = file_list[i]
-            # Copy Image file to VOCTrain staging
-            shutil.copyfile(img_source + file, voctrain_img_dest + file)
-
-            # Copy Annot file to VOCTrain
-            file_name, ext = os.path.splitext(file)
-            shutil.copyfile(annot_source + file_name + '.xml', voctrain_annot_dest + file_name + '.xml')
+            voctrain_annot_dest = './tmp/' + job_id + '/VOCTrain/Annotations/'
+            vocvalid_annot_dest = './tmp/' + job_id + '/VOCValid/Annotations/'
 
 
-        # Copy the 30% to VOC structure (validation)
-        thi = range(seventy + 1, len(file_list))
-        for i in thi:
-            file = file_list[i]
-            # Copy Image file to VOCValid staging
-            shutil.copyfile(img_source + file, vocvalid_img_dest + file)
+            # Create list of all images in working path
+            file_list = generate_list(img_source)
 
-            # Copy Annot file to VOCValid
-            file_name, ext = os.path.splitext(file)
-            shutil.copyfile(annot_source + file_name + '.xml', vocvalid_annot_dest + file_name + '.xml')
+            # Shuffle the list
+            random.shuffle(file_list)
+
+            # Get 70% for training
+            seventy = round(len(file_list) * .7)
+
+            # Copy the 70% VOC structure (training)
+            sev = range(0, seventy)
+            for i in sev:
+                file = file_list[i]
+                # Copy Image file to VOCTrain staging
+                shutil.copyfile(img_source + file, voctrain_img_dest + file)
+
+                # Copy Annot file to VOCTrain
+                file_name, ext = os.path.splitext(file)
+                shutil.copyfile(annot_source + file_name + '.xml', voctrain_annot_dest + file_name + '.xml')
+
+
+            # Copy the 30% to VOC structure (validation)
+            thi = range(seventy + 1, len(file_list))
+            for i in thi:
+                file = file_list[i]
+                # Copy Image file to VOCValid staging
+                shutil.copyfile(img_source + file, vocvalid_img_dest + file)
+
+                # Copy Annot file to VOCValid
+                file_name, ext = os.path.splitext(file)
+                shutil.copyfile(annot_source + file_name + '.xml', vocvalid_annot_dest + file_name + '.xml')
     except Exception as err:
         print(err)
 
