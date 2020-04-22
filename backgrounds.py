@@ -54,7 +54,6 @@ class Generator:
                     # TODO - NEED to log this error somewhere
                     print("unable to add {}.  Error = {}".format(key['Key'], err))
                     pass # Skip this troublemaker
-                break
 
     def get_background(self, index):
         return self.catalog[index]

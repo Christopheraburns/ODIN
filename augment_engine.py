@@ -542,13 +542,6 @@ def main():
         create_mirror_images(c, 'horizontal')
         create_spiral_shift_images(c)
 
-
-    # For each class folder (post augmentation) split data
-    #split(c_name, 'x')
-    #split(c_name, 'y')
-    #split(c_name, 'z')
-
-
 if __name__ == '__main__':
     logging.info("******************************")
     logging.info("New ODIN augment_engine session started job-id: {}".format(job_id))

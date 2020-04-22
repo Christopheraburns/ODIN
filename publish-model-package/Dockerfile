@@ -12,7 +12,7 @@ RUN pip3 install -U Flask joblib sklearn;
 
 COPY blender-2.82a-linux64.tar.xz /blender-2.82a-linux64.tar.xz
 
-RUN tar xvf blender-2.82a-linux64.tar.xz
+RUN Pillow
 
 RUN cd blender-2.82a-linux64/2.82/python/bin && ./python3.7m -m ensurepip && ./python3.7m pip3 install opencv-python && ./python3.7m pip3 install --upgrade Pillow && ./python3.7m pip3 install --upgrade boto3 
 
