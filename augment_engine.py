@@ -23,7 +23,7 @@ logging.basicConfig(filename='runtime.log', level=logging.INFO)
 s3_background_bucket = 'odin-bck'
 background_generator = None
 m_length = 0  # Num of entries in background (minus 1 for zero based)
-
+max_base = 600
 
 # S3 Folder structure
 #s3_output = s3_bucket + '/output/' + job_id + '/VOC'
@@ -63,7 +63,6 @@ def create_backgrounds():
     global m_length
     background_generator = backgrounds.Generator(s3_background_bucket, target_h, target_w)
     m_length = background_generator.get_count()
-
 
 # Function to iterate each class and axis, move 70% to VOCTrain and 30% to VOCValid
 def split(c_name, axis):
@@ -209,10 +208,37 @@ def overlay_transparent(background, render, anchor_x, anchor_y):
         background[anchor_y:anchor_y + h, anchor_x:anchor_x + w] = (1.0 - mask) * \
                                                      background[anchor_y:anchor_y + h, anchor_x:anchor_x + w] + \
                                                                    mask * overlay_image
-
         return background
     except Exception as msg:
         logging.error("def overlay_transparent::" + str(msg))
+
+
+# (re)size the rendered image to fit the background
+def right_size(img):
+    global max_base
+
+    if (img.shape[0] > max_base) or (img.shape[1] > max_base):
+        # Resize by the largest dimension
+        if img.shape[1] > max_base and img.shape[1] >= img.shape[0]:
+            scale_factor = int(max_base / img.shape[1] * 100)
+        else:  # re-size by height not width
+            scale_factor = int(max_base / img.shape[0] * 100)
+        width = int(img.shape[1] * scale_factor / 100)
+        height = int(img.shape[0] * scale_factor / 100)
+        dim = (width, height)
+        img = cv2.resize(img, dim, interpolation=cv2.INTER_AREA)
+
+    return img
+
+
+def resize_image(img, scale):
+
+    width = int(img.shape[1] * scale)
+    height = int(img.shape[0] * scale)
+    dim = (width, height)
+    img = cv2.resize(img, dim, interpolation=cv2.INTER_AREA)
+
+    return img
 
 
 # function to create images with the object off-centered in a spiral pattern on the background
@@ -230,30 +256,24 @@ def create_spiral_shift_images(c_name):
                     rendered_img = cv2.imread("./tmp/images/" + c_name + "/" + ax + "/renders/" + filename,
                                               cv2.IMREAD_UNCHANGED)
 
+                    rendered_img = right_size(rendered_img)
+
                     # we will now change the size of the base render and create images along the spiral trajectory for each size
                     # x-small   small   medium
-                    # 15%       30%     50%                   # Percent of background H & W
+                    # 30%       50%     75%                   # Percent of background H & W
 
-                    xsmall = int(target_w * .15)                    # 15% of normal
-                    small = int(target_w * .30)                     # 30% of normal
-                    medium = int(target_w * .50)                    # 50% of normal
+                    x_small = .30
+                    small = .50
+                    medium = .75
 
-                    sizes = [xsmall, small, medium]
+                    sizes = [x_small, small, medium]
 
-                    # This will result in a new image for each render at each different size (4) and at each different
-                    # point on the spiral trajectory (3). Thus 359 * 4 * 3 unique images per axis will be created
+                    # This will result in a new image for each render at each different size (3) and at each different
+                    # point on the spiral trajectory (3). Thus 359 * 3 * 3 unique images per axis will be created
                     size_index = 1
                     for size in sizes:
 
-                        # determine the largest dimension so we can resize image by largest dimension
-                        if rendered_img.shape[1] >= rendered_img.shape[0]:
-                            scale = size / rendered_img.shape[1]
-                            dim = (size, int(rendered_img.shape[0] * scale))
-                            resized_img = cv2.resize(rendered_img, dim, interpolation=cv2.INTER_AREA)
-                        else:
-                            scale = size / rendered_img.shape[0]
-                            dim = (size, int(rendered_img.shape[1] * scale))
-                            resized_img = cv2.resize(rendered_img, dim, interpolation=cv2.INTER_AREA)
+                        resized_img = resize_image(rendered_img, size)
 
                         overlay_w = resized_img.shape[1]
                         overlay_h = resized_img.shape[0]
@@ -361,6 +381,7 @@ def create_spiral_shift_images(c_name):
         logging.error("def create_spiral_shift_images:: {}".format(err))
 
 
+# Flip the base image horizontally and vertically
 def create_mirror_images(c_name, direction):
     axis = ['x', 'y', 'z']
     for ax in axis:
@@ -368,19 +389,11 @@ def create_mirror_images(c_name, direction):
         for root, dir, files in os.walk("./tmp/images/" + c_name + "/" + ax + "/renders"):
             for filename in files:
                 # Read the rendered image from disk
-                new_img = cv2.imread("./tmp/images/" + c_name + "/" + ax + "/renders/" + filename,
-                                     cv2.IMREAD_UNCHANGED)
+                new_img = cv2.imread("./tmp/images/" + c_name + "/" + ax + "/renders/" + filename, cv2.IMREAD_UNCHANGED)
 
-                # Images are rendered larger than the background image of 700x700 to preserve detail
-                # resize the new_img to 350 max height or width as the baseline
-                if new_img.shape[1] >= new_img.shape[0]:
-                    scale = 350 / new_img.shape[1]
-                    dim = (350, int(new_img.shape[0] * scale))
-                    new_img = cv2.resize(new_img, dim, interpolation=cv2.INTER_AREA)
-                else:
-                    scale = 350 / new_img.shape[0]
-                    dim = (350, int(new_img.shape[1] * scale))
-                    new_img = cv2.resize(new_img, dim, interpolation=cv2.INTER_AREA)
+                # Images may be rendered larger than the background image of 700x700 to preserve detail
+                # resize the new_img to 600 max height or width as the baseline - if needed
+                new_img = right_size(new_img)
 
                 # get a random background image from background catalog
                 key = random.randrange(0, m_length)
@@ -438,7 +451,6 @@ def create_mirror_images(c_name, direction):
                 file_index += 1
 
 
-
 # function to create a base set of images based on the rendered image and a background
 def create_base_images(c_name):
         # Bounding_box[0] = min_x
@@ -455,16 +467,9 @@ def create_base_images(c_name):
                     new_img = cv2.imread("./tmp/images/" + c_name + "/" + ax + "/renders/" + filename,
                                          cv2.IMREAD_UNCHANGED)
 
-                    # Images are rendered larger than the background image of 700x700 to preserve detail
-                    # resize the new_img to 350 max height or width as the baseline
-                    if new_img.shape[1] >= new_img.shape[0]:
-                        scale = 350 / new_img.shape[1]
-                        dim = (350, int(new_img.shape[0] * scale))
-                        new_img = cv2.resize(new_img, dim, interpolation=cv2.INTER_AREA)
-                    else:
-                        scale = 350 / new_img.shape[0]
-                        dim = (350, int(new_img.shape[1] * scale))
-                        new_img = cv2.resize(new_img, dim, interpolation=cv2.INTER_AREA)
+                    # Images may be rendered larger than the background image of 700x700 to preserve detail
+                    # resize the new_img to 600 max height or width as the baseline - if needed
+                    new_img = right_size(new_img)
 
                     # get a random background image from background catalog
                     key = random.randrange(0, m_length)
@@ -496,7 +501,6 @@ def create_base_images(c_name):
                     # ######
                     # x_min, y_min is now the top left corner of the bounding box
                     new_box = [x_min, y_min, int(x_min + new_img.shape[1]), int(y_min + new_img.shape[0])]
-
 
                     str_index = str(file_index)
                     if len(str_index) == 1:
@@ -534,15 +538,16 @@ def main():
         print("Generating base images for {} class".format(c))
         create_base_images(c)
         #print("Generating scaled/shifted images for {} class".format(c))
-        #create_spiral_shift_images(c)
         create_mirror_images(c, 'vertical')
         create_mirror_images(c, 'horizontal')
+        create_spiral_shift_images(c)
 
 
     # For each class folder (post augmentation) split data
     #split(c_name, 'x')
     #split(c_name, 'y')
     #split(c_name, 'z')
+
 
 if __name__ == '__main__':
     logging.info("******************************")

@@ -24,7 +24,7 @@ s3_bucket = ''                          # Bucket where .obj files can be found f
 
 # TODO - add the below variables to argparse
 rotation_theta = 1      # amount (in degrees) to rotate the object - on each axis - for each render
-upper_bound = 360    # 360 degrees of total rotation
+upper_bound = 2    # 360 degrees of total rotation
 target_h = 700
 target_w = 700
 max_scale = 3.25

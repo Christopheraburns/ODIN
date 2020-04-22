@@ -15,6 +15,6 @@ echo "Blender is finished rendering, begin augmentation process..."
 
 python3 augment_engine.py
 
-python3 split.py
+#python3 split.py
 
-python3 util.py
+#python3 util.py
