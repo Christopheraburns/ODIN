@@ -27,7 +27,7 @@ rotation_theta = 1      # amount (in degrees) to rotate the object - on each axi
 upper_bound = 360    # 360 degrees of total rotation
 target_h = 700
 target_w = 700
-
+max_scale = 3.25
 
 # Function to clear old workspace if exists and create fresh folder structure
 def create_workspace():
@@ -164,14 +164,14 @@ def right_size(vector):
 
         # Which axis is max
         if x == dim:
-            if x > 5.75:
-                scale_factor = 5.75 / x
+            if x > max_scale:
+                scale_factor = max_scale / x
         elif y == dim:
-            if y > 5.75:
-                scale_factor = 5.75 / y
+            if y > max_scale:
+                scale_factor = max_scale / y
         elif z == dim:
-            if z > 5.75:
-                scale_factor = 5.75 / z
+            if z > max_scale:
+                scale_factor = max_scale / z
 
     except Exception as err:
         logging.error("def right_size:: {}".format(err))

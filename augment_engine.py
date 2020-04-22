@@ -361,6 +361,84 @@ def create_spiral_shift_images(c_name):
         logging.error("def create_spiral_shift_images:: {}".format(err))
 
 
+def create_mirror_images(c_name, direction):
+    axis = ['x', 'y', 'z']
+    for ax in axis:
+        file_index = 1
+        for root, dir, files in os.walk("./tmp/images/" + c_name + "/" + ax + "/renders"):
+            for filename in files:
+                # Read the rendered image from disk
+                new_img = cv2.imread("./tmp/images/" + c_name + "/" + ax + "/renders/" + filename,
+                                     cv2.IMREAD_UNCHANGED)
+
+                # Images are rendered larger than the background image of 700x700 to preserve detail
+                # resize the new_img to 350 max height or width as the baseline
+                if new_img.shape[1] >= new_img.shape[0]:
+                    scale = 350 / new_img.shape[1]
+                    dim = (350, int(new_img.shape[0] * scale))
+                    new_img = cv2.resize(new_img, dim, interpolation=cv2.INTER_AREA)
+                else:
+                    scale = 350 / new_img.shape[0]
+                    dim = (350, int(new_img.shape[1] * scale))
+                    new_img = cv2.resize(new_img, dim, interpolation=cv2.INTER_AREA)
+
+                # get a random background image from background catalog
+                key = random.randrange(0, m_length)
+                bckgrnd = cv2.cvtColor(background_generator.get_background(key), cv2.COLOR_RGB2BGR)
+
+                # Find center point of background image
+                x = target_w / 2
+                y = target_h / 2
+
+                # find center point of rendered image
+                xx = new_img.shape[1] / 2
+                yy = new_img.shape[0] / 2
+
+                # Subtract center point (X,Y) of rendered image from the center point (X, Y) of the background image
+                # to position the rendered image in the center of the background
+                x_min = int(round(x - xx))
+                y_min = int(round(y - yy))
+
+                if direction == 'vertical':
+                    # Flip the image vertically
+                    new_img = cv2.flip(new_img, 0)
+                else:
+                    # Flip the image horizontally
+                    new_img = cv2.flip(new_img, 1)
+
+                # Merge the background and rendered image
+                final_img = overlay_transparent(bckgrnd, new_img, x_min, y_min)
+
+                # ######
+                # Update the bounding box info for the newly created image
+                # ######
+                # x_min, y_min is now the top left corner of the bounding box
+                new_box = [x_min, y_min, int(x_min + new_img.shape[1]), int(y_min + new_img.shape[0])]
+
+                str_index = str(file_index)
+                if len(str_index) == 1:
+                    str_index = "00" + str_index
+                elif len(str_index) == 2:
+                    str_index = "0" + str_index
+
+                try:
+                    # write the final .JPG to disk
+                    if direction == 'vertical':
+                        diskname = str_index + "_v_" + c_name + "_" + ax + "_base"
+                    else:
+                        diskname = str_index + "_h_" + c_name + "_" + ax + "_base"
+
+                    cv2.imwrite("./tmp/images/" + c_name + "/" + ax + "/base/" + diskname + ".jpg", final_img)
+
+                    # write the VOC File
+                    voc_file = diskname + ".xml"
+                    write_voc(voc_file, target_h, target_w, 3, new_box, c_name)
+                except Exception as err:
+                    logging.error("def create_base_image::{}".format(err))
+                file_index += 1
+
+
+
 # function to create a base set of images based on the rendered image and a background
 def create_base_images(c_name):
         # Bounding_box[0] = min_x
@@ -455,8 +533,10 @@ def main():
     for c in classes:
         print("Generating base images for {} class".format(c))
         create_base_images(c)
-        print("Generating scaled/shifted images for {} class".format(c))
-        create_spiral_shift_images(c)
+        #print("Generating scaled/shifted images for {} class".format(c))
+        #create_spiral_shift_images(c)
+        create_mirror_images(c, 'vertical')
+        create_mirror_images(c, 'horizontal')
 
 
     # For each class folder (post augmentation) split data
