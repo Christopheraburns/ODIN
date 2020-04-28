@@ -23,8 +23,6 @@ C = bpy.context                         # Abbreviate the bpy.context namespace a
 s3_bucket = ''                          # Bucket where .obj files can be found for processing
 
 # TODO - add the below variables to argparse
-rotation_theta = 1      # amount (in degrees) to rotate the object - on each axis - for each render
-upper_bound = 360    # 360 degrees of total rotation
 target_h = 700
 target_w = 700
 max_scale = 3.25
@@ -239,6 +237,8 @@ def render(obj, angle, axis, axis_index, c_name):
 # Finally the mesh is rotated by theta on each axis and an image is rendered to disk
 def orchestrate(three_d_obj, c_name):
     global rotation_theta
+    global rotation_type
+    global upper_bound
     try:
         # clear default scene
         bpy.ops.object.delete() # should delete cube
@@ -320,19 +320,26 @@ def orchestrate(three_d_obj, c_name):
         # Need to verify all vertices of the object are in the viewport
 
         # Rotate on the Zed axis
-        for z in range(1, upper_bound):
-            angle = (start_angle * (math.pi/180)) + (z*-1) * (rotation_theta * (math.pi/180))
-            render(obj, angle, "z", z, c_name)
+        if (rotation_type=='Z' or rotation_type=='A'):
+            for z in range(1, upper_bound):
+                angle = (start_angle * (math.pi/180)) + (z*-1) * (rotation_theta * (math.pi/180))
+                print('z',angle)
+
+            #render(obj, angle, "z", z, c_name)
 
         # Rotate on the X axis
-        for x in range(1, upper_bound):
-            angle = (start_angle * (math.pi/180)) + (x*-1) * (rotation_theta * (math.pi/180))
-            render(obj, angle, "x", x, c_name)
+        if (rotation_type=='X' or rotation_type=='A'):
+            for x in range(1, upper_bound):
+                angle = (start_angle * (math.pi/180)) + (x*-1) * (rotation_theta * (math.pi/180))
+                print('x',angle)
+                #render(obj, angle, "x", x, c_name)
 
         # Rotate on the Y axis
-        for y in range(1, upper_bound):
-            angle = (start_angle * (math.pi/180)) + (y*-1) * (rotation_theta * (math.pi/180))
-            render(obj, angle, "y", y, c_name)
+        if (rotation_type=='Y' or rotation_type=='A'):
+            for y in range(1, upper_bound):
+                angle = (start_angle * (math.pi/180)) + (y*-1) * (rotation_theta * (math.pi/180))
+                print('y',angle)
+                #render(obj, angle, "y", y, c_name)
 
     except Exception as err:
         logging.error("def orchestrate:: {}".format(err))
@@ -376,15 +383,30 @@ def main():
 
 
 if __name__ == '__main__':
+    
+    global rotation_theta
+    global rotation_type
+    global upper_bound
+    rotation_type='A'
     logging.info("******************************")
     logging.info("New ODIN rendering session started at {}".format(datetime.datetime.now()))
     logging.info("******************************")
-
     argv = sys.argv
     argv = argv[argv.index("--")+1:] # Get all the args after "--"
     print(argv)
-    theta = int(sys.argv[-1])
-    logging.info("theta set to {}".format(theta))
+    rotation_theta = int(sys.argv[-1])
+    logging.info("theta set to {}".format(rotation_theta))
     s3_bucket = sys.argv[-2]
     logging.info("s3_bucket = {}".format(s3_bucket))
+    if (len(argv)>2):
+        rotation_type = sys.argv[-3]
+        logging.info("rotation_type = {} (X/Y/Z/A)".format(rotation_type))
+        if (len(argv)>3):
+            upper_bound = int(sys.argv[-4])
+            logging.info("upper_bound = {} (0-360)".format(upper_bound))
+        else:
+            upper_bound=360
+
+        
     main()
+    logging.info("**************Finished execution****************")
