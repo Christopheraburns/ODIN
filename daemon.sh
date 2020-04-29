@@ -14,7 +14,7 @@ blender -b -noaudio -E CYCLES --python euler_engine.py -- handtools 180
 
 timestamp=$(date +%s)
 
-python3 augment_engine.py
+python3 augment_engine.py $timestamp
 
 python3 split.py $timestamp handtools
 
