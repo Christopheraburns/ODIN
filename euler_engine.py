@@ -324,22 +324,21 @@ def orchestrate(three_d_obj, c_name):
             for z in range(1, upper_bound):
                 angle = (start_angle * (math.pi/180)) + (z*-1) * (rotation_theta * (math.pi/180))
                 print('z',angle)
-
-            #render(obj, angle, "z", z, c_name)
+                render(obj, angle, "z", z, c_name)
 
         # Rotate on the X axis
         if (rotation_type=='X' or rotation_type=='A'):
             for x in range(1, upper_bound):
                 angle = (start_angle * (math.pi/180)) + (x*-1) * (rotation_theta * (math.pi/180))
                 print('x',angle)
-                #render(obj, angle, "x", x, c_name)
+                render(obj, angle, "x", x, c_name)
 
         # Rotate on the Y axis
         if (rotation_type=='Y' or rotation_type=='A'):
             for y in range(1, upper_bound):
                 angle = (start_angle * (math.pi/180)) + (y*-1) * (rotation_theta * (math.pi/180))
                 print('y',angle)
-                #render(obj, angle, "y", y, c_name)
+                render(obj, angle, "y", y, c_name)
 
     except Exception as err:
         logging.error("def orchestrate:: {}".format(err))

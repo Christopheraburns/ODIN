@@ -6,7 +6,9 @@ import random
 import datetime
 import shutil
 import sys
+import boto3
 
+s3 = boto3.client('s3')
 
 classes = []
 path = './tmp/images'
@@ -114,8 +116,10 @@ def move_to_s3():
     for root, dirs, files in os.walk('./tmp/' + job_id):
         print('files',files)
         for filename in files:
-            print('uploading',filename)
-            upload_file(filename, bucket, object_name=None)
+            path=os.path.join(root, filename)
+            key= path.replace('./tmp/','synthetic_data/')
+            print('uploading',path)
+            upload_file(path, bucket, object_name=key)
 
 def upload_file(file_name, bucket, object_name=None):
 

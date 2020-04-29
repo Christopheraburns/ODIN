@@ -17,6 +17,7 @@ import time
 import shutil
 import datetime
 import backgrounds
+import sys
 
 logging.basicConfig(filename='runtime.log', level=logging.INFO)
 
@@ -51,10 +52,10 @@ train_set_percent = .7
 
 points = zip(spiral_trajectory_x, spiral_trajectory_y)
 
-job_id = str(datetime.datetime.now())   # Unique ID + run date/time for this job
-job_id = job_id.replace(":", "-")
-job_id = job_id.replace(".", "-")
-job_id = job_id.replace(" ", "")
+#job_id = str(datetime.datetime.now())   # Unique ID + run date/time for this job
+#job_id = job_id.replace(":", "-")
+#job_id = job_id.replace(".", "-")
+#job_id = job_id.replace(" ", "")
 
 
 # pre-download all background images from s3
@@ -66,13 +67,14 @@ def create_backgrounds():
 
 # Function to iterate each class and axis, move 70% to VOCTrain and 30% to VOCValid
 def split(c_name, axis):
+    global job_id
     global train_set_size
     try:
         for root, directory, files in os.walk('./tmp/images/' + c_name + '/' + axis):
             for img_type in directory:
 
                 if img_type != 'renders':
-                    print(img_type)
+                    print('img_type',img_type)
                     image_list = []
                     for r, dir, filenames in os.walk('./tmp/images/' + c_name + '/' + axis + '/' + img_type):
                         for file in filenames:
@@ -543,6 +545,13 @@ def main():
         create_spiral_shift_images(c)
 
 if __name__ == '__main__':
+    global job_id
+
+    if (len(sys.argv)>0):
+        job_id = sys.argv[-1]
+    else:
+        job_id = '2020-04-0712-27-23-324283'
+    print('job_id',job_id)    
     logging.info("******************************")
     logging.info("New ODIN augment_engine session started job-id: {}".format(job_id))
     logging.info("******************************")
