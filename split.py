@@ -5,8 +5,8 @@ import os
 import random
 import datetime
 import shutil
+import sys
 
-job_id = '2020-04-0712-27-23-324283'
 
 classes = []
 path = './tmp/images'
@@ -35,10 +35,13 @@ def generate_list(workpath):
 
 
 def split(c_name, axis, subfolder):
+    global job_id
+
     try:
         # Capture some paths in variables
         img_source = path + '/' + c_name + '/' + axis + '/' + subfolder + '/'
         if os.path.exists(img_source):
+            print('img_source found')
             annot_source = './tmp/annotations/'
 
             voctrain_img_dest = './tmp/' + job_id + '/VOCTrain/shuffle/'
@@ -101,9 +104,37 @@ def create_voc_directory():
     os.mkdir('./tmp/' + job_id + '/VOCValid/ImageSets')
     os.mkdir('./tmp/' + job_id + '/VOCValid/ImageSets/Main')
 
+def move_to_s3():
+    
+    global bucket
+    global job_id
+
+    print('move_to_s3')
+
+    for root, dirs, files in os.walk('./tmp/' + job_id):
+        print('files',files)
+        for filename in files:
+            print('uploading',filename)
+            upload_file(filename, bucket, object_name=None)
+
+def upload_file(file_name, bucket, object_name=None):
+
+    # If S3 object_name was not specified, use file_name
+    if object_name is None:
+        object_name = file_name
+
+    # Upload the file
+    try:
+        response = s3.upload_file(file_name, bucket, object_name)
+    except ClientError as e:
+        logging.error(e)
+        return False
+    return True
 
 # Orchestrate the folder enumeration and split each class/axis/image type
 def split_data():
+    global job_id
+
     axis = ['x', 'y', 'z']
     subs = ['base', 'ss']
     for c_name in classes:
@@ -131,6 +162,8 @@ def build_VOC():
 
     # Move the shuffled training files out of staging and write the ImageSet file
     for t in range(len(train_list)):
+        print('moving training file',train_list[t])
+
         # Move the file
         file = train_list[t]
         file_name, _ = os.path.splitext(file)
@@ -175,10 +208,23 @@ def main():
     build_VOC()
 
     # Move to S3
-    #move_to_s3()
+    move_to_s3()
 
 
 if __name__ == '__main__':
+    
+    global job_id
+    global bucket
+
+    if (len(sys.argv)>0):
+        bucket = sys.argv[-1]
+        print('bucket',bucket)    
+        if (len(sys.argv)>1):
+            job_id = sys.argv[-2]
+        else:
+            job_id = '2020-04-0712-27-23-324283'
+        print('job_id',job_id)    
+
     for root, dirs, files in os.walk('./tmp'):
         # only process the .obj files for now
         for filename in files:

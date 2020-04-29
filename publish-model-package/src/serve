@@ -1,3 +1,0 @@
-#!/bin/bash
-
-blender-2.82a-linux64/blender -b -noaudio -E CYCLES --python script3.py $1 $2 $3 $4 $5

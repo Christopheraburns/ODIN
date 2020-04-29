@@ -9,12 +9,16 @@
 echo "Blender is rendering images..."
 
 # Use blender to render the image on each degree of X , Y and Z axis then exit
-blender -b -noaudio -E CYCLES --python euler_engine.py -- handtools 1
+blender -b -noaudio -E CYCLES --python euler_engine.py -- handtools 180
 
-echo "Blender is finished rendering, begin augmentation process..."
+
+timestamp=$(date +%s)
 
 python3 augment_engine.py
 
-#python3 split.py
+python3 split.py $timestamp handtools
+
+
+echo "Blender is finished rendering, begin augmentation process..."
 
 #python3 util.py
