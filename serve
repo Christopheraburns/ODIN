@@ -1,0 +1,9 @@
+#!/bin/bash
+
+blender-2.82a-linux64/blender --background -b -noaudio -E CYCLES --python euler_engine.py -- $1 $2 $3 $4
+
+timestamp=$(date +%s)
+
+python3 augment_engine.py $timestamp
+
+python3 split.py $timestamp $3
