@@ -239,6 +239,7 @@ def orchestrate(three_d_obj, c_name):
     global rotation_theta
     global rotation_type
     global upper_bound
+    print('Entering orchestrate',three_d_obj)
     try:
         # clear default scene
         bpy.ops.object.delete() # should delete cube
@@ -320,28 +321,26 @@ def orchestrate(three_d_obj, c_name):
         # Need to verify all vertices of the object are in the viewport
 
         # Rotate on the Zed axis
+        print('rotation_type:'+rotation_type)
         if (rotation_type=='Z' or rotation_type=='A'):
             for z in range(1, upper_bound):
                 angle = (start_angle * (math.pi/180)) + (z*-1) * (rotation_theta * (math.pi/180))
-                print('z',angle)
                 render(obj, angle, "z", z, c_name)
 
         # Rotate on the X axis
         if (rotation_type=='X' or rotation_type=='A'):
             for x in range(1, upper_bound):
                 angle = (start_angle * (math.pi/180)) + (x*-1) * (rotation_theta * (math.pi/180))
-                print('x',angle)
                 render(obj, angle, "x", x, c_name)
-
         # Rotate on the Y axis
         if (rotation_type=='Y' or rotation_type=='A'):
             for y in range(1, upper_bound):
                 angle = (start_angle * (math.pi/180)) + (y*-1) * (rotation_theta * (math.pi/180))
-                print('y',angle)
                 render(obj, angle, "y", y, c_name)
 
     except Exception as err:
         logging.error("def orchestrate:: {}".format(err))
+        print('Error occured',err)
 
 
 # Download relevant .obj files from s3 and call the orchestrator
@@ -364,7 +363,7 @@ def main():
                     class_name, ext = os.path.splitext(filename)
                     if ext.lower() == '.obj':
                         classes.append(class_name)
-
+            print('classes',classes)
             create_classes_workspace(classes)
 
             for root, dirs, files in os.walk('./tmp'):
@@ -392,17 +391,18 @@ if __name__ == '__main__':
     logging.info("******************************")
     argv = sys.argv
     argv = argv[argv.index("--")+1:] # Get all the args after "--"
-    print(argv)
-    rotation_theta = int(sys.argv[-1])
-    logging.info("theta set to {}".format(rotation_theta))
-    s3_bucket = sys.argv[-2]
-    logging.info("s3_bucket = {}".format(s3_bucket))
+    print('euler_engine_args:',argv)    
+    
+    rotation_theta = int(argv[0])
+    print("theta set to {}".format(rotation_theta))
+    s3_bucket = argv[1]
+    print("s3_bucket = {}".format(s3_bucket))
     if (len(argv)>2):
-        rotation_type = sys.argv[-3]
-        logging.info("rotation_type = {} (X/Y/Z/A)".format(rotation_type))
+        rotation_type = argv[2]
+        print("rotation_type = {} (X/Y/Z/A)".format(rotation_type))
         if (len(argv)>3):
-            upper_bound = int(sys.argv[-4])
-            logging.info("upper_bound = {} (0-360)".format(upper_bound))
+            upper_bound = int(argv[3])
+            print("upper_bound = {} (0-360)".format(upper_bound))
         else:
             upper_bound=360
 

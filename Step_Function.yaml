@@ -1,0 +1,131 @@
+{
+  "Comment": "Run ODIN",
+  "StartAt": "RunContainers",
+  "States": {
+    "RunContainers": {
+      "Type": "Parallel",
+      "Next": "NotifySuccess",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "NotifyFailure"
+        }
+      ],
+      "Branches": [
+        {
+          "StartAt": "RunX",
+          "States": {
+            "RunX": {
+              "Type": "Task",
+              "End": true,
+              "Resource": "arn:aws:states:::ecs:runTask.sync",
+              "Parameters": {
+                "LaunchType": "FARGATE",
+                "Cluster": "arn:aws:ecs:us-east-1:056149205531:cluster/default",
+                "TaskDefinition": "arn:aws:ecs:us-east-1:056149205531:task-definition/Odin:2",
+                "NetworkConfiguration": {
+                  "AwsvpcConfiguration": {
+                    "Subnets": [
+                      "subnet-0687c1a621d137214"
+                    ],
+                    "AssignPublicIp": "ENABLED"
+                  }
+                },
+                "Overrides": {
+                  "ContainerOverrides": [
+                    {
+                      "Name":"odin",
+                      "Command":["1 handtools-mini X 360 $.job_id"]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "StartAt": "RunZ",
+          "States": {
+            "RunZ": {
+              "Type": "Task",
+              "End": true,
+              "Resource": "arn:aws:states:::ecs:runTask.sync",
+              "Parameters": {
+                "LaunchType": "FARGATE",
+                "Cluster": "arn:aws:ecs:us-east-1:056149205531:cluster/default",
+                "TaskDefinition": "arn:aws:ecs:us-east-1:056149205531:task-definition/Odin:2",
+                "NetworkConfiguration": {
+                  "AwsvpcConfiguration": {
+                    "Subnets": [
+                      "subnet-0687c1a621d137214"
+                    ],
+                    "AssignPublicIp": "ENABLED"
+                  }
+                },
+                "Overrides": {
+                  "ContainerOverrides": [
+                    {
+                      "Name":"odin",
+                      "Command":["1 handtools-mini Z 360 $.job_id"]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "StartAt": "RunY",
+          "States": {
+            "RunY": {
+              "Type": "Task",
+              "End": true,
+              "Resource": "arn:aws:states:::ecs:runTask.sync",
+              "Parameters": {
+                "LaunchType": "FARGATE",
+                "Cluster": "arn:aws:ecs:us-east-1:056149205531:cluster/default",
+                "TaskDefinition": "arn:aws:ecs:us-east-1:056149205531:task-definition/Odin:2",
+                "NetworkConfiguration": {
+                  "AwsvpcConfiguration": {
+                    "Subnets": [
+                      "subnet-0687c1a621d137214"
+                    ],
+                    "AssignPublicIp": "ENABLED"
+                  }
+                },
+                "Overrides": {
+                  "ContainerOverrides": [
+                    {
+                      "Name":"odin",
+                      "Command": ["1 handtools-mini Y 360 $.job_id"]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "NotifySuccess": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "Message": "ODIN Fargate Task started by Step Functions succeeded",
+        "TopicArn": "arn:aws:sns:us-east-1:056149205531:OdinExecutionStatus"
+      },
+      "End": true
+    },
+    "NotifyFailure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "Message": "ODIN Fargate Task started by Step Functions failed",
+        "TopicArn": "arn:aws:sns:us-east-1:056149205531:OdinExecutionStatus"
+      },
+      "End": true
+    }
+  }
+}

@@ -7,7 +7,7 @@ import datetime
 import shutil
 import sys
 import boto3
-
+import botocore
 s3 = boto3.client('s3')
 
 classes = []
@@ -111,7 +111,7 @@ def move_to_s3():
     global bucket
     global job_id
 
-    print('move_to_s3')
+    print('move_to_s3:',bucket)
 
     for root, dirs, files in os.walk('./tmp/' + job_id):
         print('files',files)
@@ -220,14 +220,14 @@ if __name__ == '__main__':
     global job_id
     global bucket
 
-    if (len(sys.argv)>0):
-        bucket = sys.argv[-1]
-        print('bucket',bucket)    
-        if (len(sys.argv)>1):
-            job_id = sys.argv[-2]
-        else:
-            job_id = '2020-04-0712-27-23-324283'
-        print('job_id',job_id)    
+    print('split.py:',sys.argv)    
+    argv = sys.argv
+    argv = argv[argv.index("--")+1:] # Get all the args after "--"
+    print('split.py::',argv,':',argv[4])    
+    job_id = argv[4]
+    print('split.py:job_id',job_id)    
+    bucket = argv[1]
+    print('split.py:bucket',bucket)    
 
     for root, dirs, files in os.walk('./tmp'):
         # only process the .obj files for now

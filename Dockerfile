@@ -24,3 +24,6 @@ COPY *.py /
 COPY serve /opt/program/serve
 RUN chmod 755 /opt/program/serve
 ENV PATH=/opt/program:${PATH}echo
+
+ENTRYPOINT ["/opt/program/serve"]
+CMD serve

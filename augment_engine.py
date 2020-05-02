@@ -546,12 +546,13 @@ def main():
 
 if __name__ == '__main__':
     global job_id
+    print('augment_engine:',sys.argv)
+    argv = sys.argv
+    argv = argv[argv.index("--")+1:] # Get all the args after "--"
+    print('augment_engine::',argv)
 
-    if (len(sys.argv)>0):
-        job_id = sys.argv[-1]
-    else:
-        job_id = '2020-04-0712-27-23-324283'
-    print('job_id',job_id)    
+    job_id = argv[4]
+    print('augment_engine:job_id',job_id)    
     logging.info("******************************")
     logging.info("New ODIN augment_engine session started job-id: {}".format(job_id))
     logging.info("******************************")
