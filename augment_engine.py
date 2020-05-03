@@ -69,6 +69,7 @@ def create_backgrounds():
 def split(c_name, axis):
     global job_id
     global train_set_size
+    global rotation_type
     try:
         for root, directory, files in os.walk('./tmp/images/' + c_name + '/' + axis):
             for img_type in directory:
@@ -86,8 +87,8 @@ def split(c_name, axis):
                     vocvalid_img_dest = './tmp/' + job_id + '/VOCValid/JPEGImages/'
                     voctrain_annot_dest = './tmp/' + job_id + '/VOCTrain/Annotations/'
                     vocvalid_annot_dest = './tmp/' + job_id + '/VOCValid/Annotations/'
-                    voctrain_set_dest = './tmp/' + job_id + '/VOCTrain/ImageSets/Main/train.txt'
-                    vocvalid_set_dest = './tmp/' + job_id + '/VOCValid/ImageSets/Main/valid.txt'
+                    voctrain_set_dest = './tmp/' + job_id + '/VOCTrain/ImageSets/Main/train_'+rotation_type+'_'+start_render_index+'_.txt'
+                    vocvalid_set_dest = './tmp/' + job_id + '/VOCValid/ImageSets/Main/valid_'+rotation_type+'_'+start_render_index+'_.txt'
 
                     random.shuffle(image_list)
                     # Get 70% for training
@@ -546,6 +547,8 @@ def main():
 
 if __name__ == '__main__':
     global job_id
+    global rotation_type
+
     print('augment_engine:',sys.argv)
     argv = sys.argv
     argv = argv[argv.index("--")+1:] # Get all the args after "--"
@@ -553,6 +556,12 @@ if __name__ == '__main__':
 
     job_id = argv[4]
     print('augment_engine:job_id',job_id)    
+    
+    rotation_type = argv[2]
+    print("rotation_type = {} (X/Y/Z/A)|For generating full dataset, specify A".format(rotation_type))
+    start_render_index = argv[5]
+    print("start_render_index = {} (0-360)|For generating full dataset, specify 0".format(start_render_index))
+
     logging.info("******************************")
     logging.info("New ODIN augment_engine session started job-id: {}".format(job_id))
     logging.info("******************************")

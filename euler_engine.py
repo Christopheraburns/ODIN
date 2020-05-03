@@ -239,6 +239,7 @@ def orchestrate(three_d_obj, c_name):
     global rotation_theta
     global rotation_type
     global upper_bound
+    global start_render_index
     print('Entering orchestrate',three_d_obj)
     try:
         # clear default scene
@@ -323,18 +324,18 @@ def orchestrate(three_d_obj, c_name):
         # Rotate on the Zed axis
         print('rotation_type:'+rotation_type)
         if (rotation_type=='Z' or rotation_type=='A'):
-            for z in range(1, upper_bound):
+            for z in range(start_render_index, upper_bound):
                 angle = (start_angle * (math.pi/180)) + (z*-1) * (rotation_theta * (math.pi/180))
                 render(obj, angle, "z", z, c_name)
 
         # Rotate on the X axis
         if (rotation_type=='X' or rotation_type=='A'):
-            for x in range(1, upper_bound):
+            for x in range(start_render_index, upper_bound):
                 angle = (start_angle * (math.pi/180)) + (x*-1) * (rotation_theta * (math.pi/180))
                 render(obj, angle, "x", x, c_name)
         # Rotate on the Y axis
         if (rotation_type=='Y' or rotation_type=='A'):
-            for y in range(1, upper_bound):
+            for y in range(start_render_index, upper_bound):
                 angle = (start_angle * (math.pi/180)) + (y*-1) * (rotation_theta * (math.pi/180))
                 render(obj, angle, "y", y, c_name)
 
@@ -385,6 +386,7 @@ if __name__ == '__main__':
     global rotation_theta
     global rotation_type
     global upper_bound
+    global start_render_index
     rotation_type='A'
     logging.info("******************************")
     logging.info("New ODIN rendering session started at {}".format(datetime.datetime.now()))
@@ -397,14 +399,13 @@ if __name__ == '__main__':
     print("theta set to {}".format(rotation_theta))
     s3_bucket = argv[1]
     print("s3_bucket = {}".format(s3_bucket))
-    if (len(argv)>2):
-        rotation_type = argv[2]
-        print("rotation_type = {} (X/Y/Z/A)".format(rotation_type))
-        if (len(argv)>3):
-            upper_bound = int(argv[3])
-            print("upper_bound = {} (0-360)".format(upper_bound))
-        else:
-            upper_bound=360
+    rotation_type = argv[2]
+    print("rotation_type = {} (X/Y/Z/A)|For generating full dataset, specify A".format(rotation_type))
+    upper_bound = int(argv[3])
+    print("upper_bound = {} (0-360)|For generating full dataset, specify 360".format(upper_bound))
+
+    start_render_index = int(argv[5])
+    print("start_render_index = {} (0-360)|For generating full dataset, specify 0".format(start_render_index))
 
         
     main()

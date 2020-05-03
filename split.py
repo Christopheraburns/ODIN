@@ -120,6 +120,7 @@ def move_to_s3():
             key= path.replace('./tmp/','synthetic_data/')
             print('uploading',path)
             upload_file(path, bucket, object_name=key)
+    print('Dataset upload complete')
 
 def upload_file(file_name, bucket, object_name=None):
 
@@ -151,8 +152,9 @@ def split_data():
 
 
 def build_VOC():
-    voctrain_set_dest = './tmp/' + job_id + '/VOCTrain/ImageSets/Main/train.txt'
-    vocvalid_set_dest = './tmp/' + job_id + '/VOCValid/ImageSets/Main/valid.txt'
+    global rotation_type
+    voctrain_set_dest = './tmp/' + job_id + '/VOCTrain/ImageSets/Main/train_'+rotation_type+'_'+start_render_index+'_.txt'
+    vocvalid_set_dest = './tmp/' + job_id + '/VOCValid/ImageSets/Main/valid_'+rotation_type+'_'+start_render_index+'_.txt'
 
     # Shuffle all training data
     train_list = generate_list('./tmp/' + job_id + '/VOCTrain/shuffle/')
@@ -219,6 +221,8 @@ if __name__ == '__main__':
     
     global job_id
     global bucket
+    global rotation_type
+    global start_render_index
 
     print('split.py:',sys.argv)    
     argv = sys.argv
@@ -227,7 +231,12 @@ if __name__ == '__main__':
     job_id = argv[4]
     print('split.py:job_id',job_id)    
     bucket = argv[1]
-    print('split.py:bucket',bucket)    
+    print('split.py:bucket',bucket)        
+    rotation_type = argv[2]
+    print("rotation_type = {} (X/Y/Z/A)|For generating full dataset, specify A".format(rotation_type))
+    start_render_index = argv[5]
+    print("start_render_index = {} (0-360)|For generating full dataset, specify 0".format(start_render_index))
+
 
     for root, dirs, files in os.walk('./tmp'):
         # only process the .obj files for now
