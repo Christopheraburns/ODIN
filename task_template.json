@@ -1,0 +1,34 @@
+ {
+          "StartAt": "Run-TASK_AXIS-START_ANGLE-STOP_ANGLE",
+          "States": {
+            "Run-TASK_AXIS-START_ANGLE-STOP_ANGLE": {
+              "Type": "Task",
+              "End": true,
+              "Resource": "arn:aws:states:::ecs:runTask.sync",
+              "Parameters": {
+                "LaunchType": "FARGATE",
+                "Cluster": "CLUSTER_ARN",
+                "TaskDefinition": "TASK_DEFINITION",
+                "NetworkConfiguration": {
+                  "AwsvpcConfiguration": {
+                    "Subnets": [
+                      "subnet-0687c1a621d137214","subnet-0a12ffad9415ace69","subnet-095ae92763f88998d","subnet-061b687a4b2ddf12f","subnet-06c8f5f4eb68171bd","subnet-0a568b9e516861458"
+
+                    ],
+                    "AssignPublicIp": "ENABLED"
+                  }
+                },
+                "Overrides": {
+                  "ContainerOverrides": [
+                    {
+                      "Name": "odin",
+                      "Command": [
+                        "1 BUCKET TASK_AXIS STOP_ANGLE JOB_NAME START_ANGLE"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
